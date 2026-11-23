@@ -267,7 +267,7 @@ Com o perfil `monitoring` no ar, o Grafana já traz 3 alertas (pasta **Cestimo**
 | Mercado sem achar produtos | 95% ou mais das buscas das últimas 6 h vieram vazias (mínimo de 8), por 30 min. Costuma ser o site do mercado ter mudado | info |
 | Cestimo fora do ar | o Prometheus não lê as métricas há 3 min | critical |
 
-Por padrão eles só aparecem no Grafana. Para ser avisado no celular ou e-mail: *Alerting → Contact points → Add contact point* (Telegram, e-mail, Slack, webhook…), e depois em *Notification policies* troque o contact point da política padrão. Para mudar limites, edite o arquivo e reinicie o Grafana (`docker compose -f docker-compose.prod.yml --profile monitoring restart grafana`).
+Eles aparecem no topo do dashboard "Cestimo · visão geral" e em *Alerting → Alert rules*. Por padrão não enviam aviso para lugar nenhum. Para ser avisado no celular ou e-mail: *Alerting → Contact points → Add contact point* (Telegram, e-mail, Slack, webhook…), e depois em *Notification policies* troque o contact point da política padrão. Para mudar limites, edite o arquivo e reinicie o Grafana (`docker compose -f docker-compose.prod.yml --profile monitoring restart grafana`).
 
 ### Rodando a stack completa no seu computador
 

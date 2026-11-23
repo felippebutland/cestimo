@@ -70,7 +70,12 @@ export function searchTerm(query: string): string {
   return kept.length > 0 ? kept.join(' ') : query;
 }
 
-/** Consulta de uma palavra só que as lojas indexam apenas no plural ("ovo" devolve chocolate e sal; "ovos" devolve as bandejas). */
+/**
+ * Consulta de uma palavra só que as lojas indexam apenas no plural ("ovo" devolve chocolate e sal; "ovos" devolve as bandejas).
+ * Medido em 2026-11-23 (Comper, Brasão, Passarela) com banana, biscoito, bolacha, pão, tomate, sabonete, detergente e macarrão:
+ * o singular funciona na maioria e o plural costuma PIORAR (tomates: 0 resultados na Comper; macarrões: 0 em duas lojas).
+ * Por isso só entra aqui palavra comprovada: não generalize.
+ */
 const PLURAL_ONLY: Record<string, string> = { ovo: 'ovos' };
 
 /** Fração dos termos pedidos presentes no título, penalizada por tamanho divergente/ausente, extras e embalagem múltipla. */
