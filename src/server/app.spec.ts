@@ -501,3 +501,61 @@ describe('consulta em duas etapas (/api/jobs): resiste a queda de conexão', () 
   });
 });
 
+describe('POST /api/recompute (depois que a pessoa troca um item)', () => {
+  const basic = { authorization: `Basic ${Buffer.from('admin:x').toString('base64')}` };
+  const m = (priceBRL: number, extra: Record<string, unknown> = {}) => ({
+    title: 'Item', priceBRL, equivalentBRL: priceBRL, sizeAdjusted: false, score: 1, uncertain: false, ...extra,
+  });
+  const row = (source: string, match?: ReturnType<typeof m>) => ({ source, status: 'ok', ...(match ? { match } : {}) });
+  const post = (app: ReturnType<typeof buildApp>, payload: unknown) =>
+    app.inject({ method: 'POST', url: '/api/recompute', payload: payload as object });
+
+  it('recalcula o mais barato, a média e a cesta com os itens enviados', async () => {
+    const app = buildApp({ sources: [fake] });
+    const res = await post(app, { products: [{ query: 'a', sources: [row('A', m(10)), row('B', m(20))] }, { query: 'b', sources: [row('A', m(5)), row('B')] }] });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.stats[0]).toMatchObject({ averageBRL: 15, cheapest: { source: 'A', priceBRL: 10 } });
+    expect(body.basket.totals).toEqual({ A: 15, B: 20 });
+    expect(body.basket.coverage).toEqual({ A: 2, B: 1 });
+    expect(body.basket.total).toBe(2);
+    expect(body.basket.cheapestSource).toBe('A');
+  });
+
+  it('item escolhido pela pessoa entra no cálculo mesmo sendo incerto', async () => {
+    const res = await post(buildApp({ sources: [fake] }), {
+      products: [{ query: 'a', sources: [row('A', m(10, { uncertain: false, chosenByUser: true })), row('B', m(20))] }],
+    });
+    expect(res.json().stats[0].cheapest.source).toBe('A');
+  });
+
+  it('dados inválidos respondem 400 com a explicação', async () => {
+    const res = await post(buildApp({ sources: [fake] }), { products: [{ query: 'a', sources: [row('A', m(-5))] }] });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toBeTruthy();
+  });
+
+  it('não depende de senha e não consulta nenhum mercado', async () => {
+    let calls = 0;
+    const counting: PriceSource = { name: 'c', search: async () => { calls++; return []; } };
+    const res = await post(buildApp({ sources: [counting] }), { products: [{ query: 'a', sources: [row('A', m(10))] }] });
+    expect(res.statusCode).toBe(200);
+    expect(calls).toBe(0);
+  });
+
+  it('tem limite de uso por IP', async () => {
+    const app = buildApp({ sources: [fake], recomputeRateLimit: { max: 2, windowMs: 60_000 } });
+    const payload = { products: [{ query: 'a', sources: [row('A', m(10))] }] };
+    expect((await post(app, payload)).statusCode).toBe(200);
+    expect((await post(app, payload)).statusCode).toBe(200);
+    expect((await post(app, payload)).statusCode).toBe(429);
+  });
+
+  it('a troca vira um evento anônimo "swap_match" (contagem)', async () => {
+    const app = buildApp({ sources: [fake], metricsToken: 'x' });
+    expect((await app.inject({ method: 'POST', url: '/api/event', payload: { name: 'swap_match' } })).statusCode).toBe(204);
+    const stats = (await app.inject({ method: 'GET', url: '/admin/stats', headers: basic })).json();
+    expect(stats.events).toMatchObject({ swap_match: 1 });
+  });
+});
+

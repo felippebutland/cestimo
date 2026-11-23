@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { compare } from './compare.js';
+import { compare, recompute, type SourceResult } from './compare.js';
 import { BlockedError, type Offer, type PriceSource } from './types.js';
 
 const src = (name: string, fn: (q: string) => Promise<Offer[]>): PriceSource => ({ name, search: fn });
@@ -160,6 +160,91 @@ describe('compare', () => {
       onProgress: () => { throw new Error('boom'); },
     });
     expect(r.products).toHaveLength(1);
+  });
+
+  describe('alternativas para a pessoa trocar o item escolhido', () => {
+    const many = (n: number) => Array.from({ length: n }, (_, i) => offer('a', `Arroz Urbano ${i === 0 ? '' : `Marca${i} `}5kg`.replace('  ', ' '), 20 + i));
+
+    it('traz até 4 alternativas da mesma loja, sem repetir o item escolhido', async () => {
+      const r = await compare(['Arroz Urbano 5kg'], [src('a', async () => many(7))]);
+      const s = r.products[0]!.sources[0]!;
+      expect(s.alternatives).toHaveLength(4);
+      expect(s.alternatives!.map((m) => m.title)).not.toContain(s.match!.title);
+    });
+
+    it('cada alternativa traz preço equivalente, tamanho e se é incerta', async () => {
+      const r = await compare(['Arroz Urbano 5kg'], [src('a', async () => [offer('a', 'Arroz Urbano 5kg', 20), offer('a', 'Arroz Urbano 1kg', 5)])]);
+      const [alt] = r.products[0]!.sources[0]!.alternatives!;
+      expect(alt).toMatchObject({ title: 'Arroz Urbano 1kg', priceBRL: 5, equivalentBRL: 25, sizeAdjusted: true, unit: 'kg' });
+      expect(typeof alt!.uncertain).toBe('boolean');
+    });
+
+    it('mesmo sem item escolhido, oferece opções (para o caso "sem resultado")', async () => {
+      const r = await compare(['Caviar 100g'], [src('a', async () => [offer('a', 'Caviar Preto Premium 50g', 80)])]);
+      const s = r.products[0]!.sources[0]!;
+      expect(s.match).toBeUndefined();
+      expect(s.alternatives).toHaveLength(1);
+      expect(s.alternatives![0]!.uncertain).toBe(true);
+    });
+
+    it('sem nada relacionado, não há alternativas', async () => {
+      const r = await compare(['Arroz Urbano 5kg'], [src('a', async () => [offer('a', 'Shampoo Infantil 400ml', 9)])]);
+      expect(r.products[0]!.sources[0]!.alternatives).toBeUndefined();
+    });
+
+    it('fonte com erro não traz alternativas', async () => {
+      const r = await compare(['Arroz Urbano 5kg'], [src('a', async () => { throw new Error('x'); })]);
+      expect(r.products[0]!.sources[0]!.alternatives).toBeUndefined();
+    });
+  });
+});
+
+describe('recompute: estatísticas e cesta a partir dos itens (depois da troca)', () => {
+  const m = (priceBRL: number, extra: Partial<NonNullable<SourceResult['match']>> = {}): NonNullable<SourceResult['match']> => ({
+    title: 'Item', priceBRL, equivalentBRL: priceBRL, sizeAdjusted: false, score: 1, uncertain: false, ...extra,
+  });
+  const row = (source: string, match?: ReturnType<typeof m>): SourceResult => ({ source, status: 'ok', ...(match ? { match } : {}) });
+
+  it('calcula mais barato, média e diferença por produto', () => {
+    const { stats } = recompute([{ sources: [row('a', m(10)), row('b', m(20))] }]);
+    expect(stats[0]).toMatchObject({ averageBRL: 15, diffBRL: 10, cheapest: { source: 'a', priceBRL: 10 } });
+  });
+
+  it('item incerto fica de fora; item escolhido pela pessoa entra', () => {
+    const { stats } = recompute([
+      { sources: [row('a', m(10, { uncertain: true })), row('b', m(20))] },
+      { sources: [row('a', m(10, { uncertain: false, chosenByUser: true })), row('b', m(20))] },
+    ]);
+    expect(stats[0]!.cheapest.source).toBe('b');
+    expect(stats[1]!.cheapest.source).toBe('a');
+  });
+
+  it('usa o preço equivalente ao tamanho pedido', () => {
+    const { stats } = recompute([{ sources: [row('a', m(7, { equivalentBRL: 35, sizeAdjusted: true })), row('b', m(30))] }]);
+    expect(stats[0]!.cheapest.source).toBe('b');
+  });
+
+  it('produto sem nenhum item vira estatística nula', () => {
+    expect(recompute([{ sources: [row('a'), row('b')] }]).stats[0]).toBeNull();
+  });
+
+  it('a cesta soma por mercado e informa a cobertura', () => {
+    const { basket } = recompute([
+      { sources: [row('a', m(10)), row('b', m(12))] },
+      { sources: [row('a', m(5)), row('b')] },
+    ]);
+    expect(basket.totals.get('a')).toBe(15);
+    expect(basket.coverage.get('b')).toBe(1);
+    expect(basket.total).toBe(2);
+    expect(basket.cheapestSource).toBe('a');
+  });
+
+  it('dá o mesmo resultado que o compare para os mesmos itens', async () => {
+    const sources = [src('a', async () => [offer('a', 'Arroz Urbano 5kg', 20)]), src('b', async () => [offer('b', 'Arroz Urbano 5kg', 25)])];
+    const r = await compare(['Arroz Urbano 5kg'], sources);
+    const again = recompute(r.products);
+    expect(again.stats[0]).toEqual(r.products[0]!.stats);
+    expect([...again.basket.totals]).toEqual([...r.basket.totals]);
   });
 });
 

@@ -1,5 +1,6 @@
 import { formatBRL, formatPct } from './format.js';
 import { JobExpiredError, submitJob, waitForJob } from './jobs.js';
+import { applyChoice, mergeRecomputed, toRecomputeBody } from './overrides.js';
 import { buildShoppingList, buildSingleStoreList, toText } from './shoppingList.js';
 
 const $ = (id) => document.getElementById(id);
@@ -48,11 +49,17 @@ for (const ex of EXAMPLES) {
 }
 
 /* ---------- Tabela comparativa ---------- */
-function cell(s, isBest) {
+function swapButton(label, onSwap) {
+  return el('button', { type: 'button', className: 'swap no-print', textContent: label, onclick: onSwap });
+}
+
+function cell(s, isBest, onSwap) {
   const td = el('td', { className: `cell${isBest ? ' best' : ''}` });
+  const hasOptions = (s.alternatives?.length ?? 0) > 0 || Boolean(s.suggested);
   if (!s.match) {
     const label = s.status === 'erro' ? 'Erro' : s.status === 'indisponivel' ? 'Indisponível' : 'Sem resultado';
     td.append(el('span', { className: s.status === 'erro' ? 'flag bad' : 'none', textContent: label, title: s.reason ?? '' }));
+    if (hasOptions && s.status === 'ok') td.append(swapButton('Ver opções', onSwap));
     return td;
   }
   const m = s.match;
@@ -60,18 +67,20 @@ function cell(s, isBest) {
   td.append(el('div', { className: 'px', textContent: formatBRL(m.priceBRL) }), el('div', { className: 'sub', title: m.title }, title));
   const extra = [m.unitPriceBRL != null ? `${formatBRL(m.unitPriceBRL)}/${m.unit}` : null, m.sizeAdjusted ? `≈ ${formatBRL(m.equivalentBRL)} no tamanho pedido` : null].filter(Boolean);
   if (extra.length) td.append(el('div', { className: 'sub', textContent: extra.join(' · ') }));
-  if (m.uncertain) td.append(el('div', { className: 'flag', textContent: 'Incerto, confira', title: s.reason ?? 'Fora da média e da cesta' }));
+  if (m.chosenByUser) td.append(el('div', { className: 'flag chosen', textContent: 'Escolhido por você' }));
+  else if (m.uncertain) td.append(el('div', { className: 'flag', textContent: 'Incerto, confira', title: s.reason ?? 'Fora da média e da cesta' }));
+  if (hasOptions) td.append(swapButton(m.chosenByUser ? 'Trocar de novo' : 'Não é esse?', onSwap));
   return td;
 }
 
-function comparisonPanel(data) {
+function comparisonPanel(data, onSwap) {
   const names = data.products[0]?.sources.map((s) => s.source) ?? [];
   const head = el('tr', {}, el('th', { className: 'prod', textContent: 'Produto' }), ...names.map((n) => el('th', { textContent: n })),
     el('th', { textContent: 'Média' }), el('th', { textContent: 'Diferença' }));
-  const rows = data.products.map((p) => {
+  const rows = data.products.map((p, pi) => {
     const best = p.stats?.cheapest.source;
     return el('tr', {}, el('td', { className: 'prod', textContent: p.query }),
-      ...p.sources.map((s) => cell(s, s.source === best)),
+      ...p.sources.map((s) => cell(s, s.source === best, () => onSwap(pi, s.source))),
       el('td', { className: 'cell' }, el('span', { className: 'px', textContent: p.stats ? formatBRL(p.stats.averageBRL) : '—' })),
       el('td', { className: 'cell' }, el('span', { className: 'px', textContent: p.stats ? formatBRL(p.stats.diffBRL) : '—' }),
         p.stats ? el('div', { className: 'sub', textContent: formatPct(p.stats.diffPct) }) : null));
@@ -147,8 +156,7 @@ function optionLabel(o, recommended) {
 function shoppingPanel(data) {
   const perItem = buildShoppingList(data);
   if (perItem.stores.length === 0) return null;
-  let mode = 'item';
-  let chosen = null;
+  let { mode, chosen } = shopState;
   let single = buildSingleStoreList(data);
   const current = () => (mode === 'item' ? perItem : single);
 
@@ -159,7 +167,7 @@ function shoppingPanel(data) {
   const select = el('select', { id: 'store-select', className: 'select' },
     ...single.options.map((o) => el('option', { value: o.source, textContent: optionLabel(o, single.recommended) })));
   const picker = el('div', { className: 'picker no-print' }, el('label', { htmlFor: 'store-select', textContent: 'Mercado' }), select);
-  select.addEventListener('change', () => { chosen = select.value; track('pick_store'); paint(); });
+  select.addEventListener('change', () => { chosen = select.value; shopState.chosen = chosen; track('pick_store'); paint(); });
 
   const paint = () => {
     single = buildSingleStoreList(data, chosen ?? undefined);
@@ -177,8 +185,8 @@ function shoppingPanel(data) {
       list.missing.length > 0 && !(mode === 'store' && !single.complete) ? el('p', { className: 'muted-note', textContent: `Não encontrados: ${list.missing.join(', ')}` }) : null,
     ].filter(Boolean));
   };
-  tabItem.addEventListener('click', () => { if (mode !== 'item') track('tab_item'); mode = 'item'; paint(); });
-  tabStore.addEventListener('click', () => { if (mode !== 'store') track('tab_store'); mode = 'store'; paint(); });
+  tabItem.addEventListener('click', () => { if (mode !== 'item') track('tab_item'); mode = 'item'; shopState.mode = mode; paint(); });
+  tabStore.addEventListener('click', () => { if (mode !== 'store') track('tab_store'); mode = 'store'; shopState.mode = mode; paint(); });
 
   const copy = el('button', { type: 'button', className: 'btn', textContent: 'Copiar texto' });
   copy.addEventListener('click', async () => {
@@ -200,8 +208,64 @@ function shoppingPanel(data) {
     body);
 }
 
-function render(data) {
-  $('result').replaceChildren(...[comparisonPanel(data), shoppingPanel(data)].filter(Boolean));
+/** Estado da lista de compras que sobrevive a um novo desenho (trocar um item não deve voltar a aba/mercado). */
+const shopState = { mode: 'item', chosen: null };
+let currentData = null;
+
+function render(data, { fresh = true } = {}) {
+  if (fresh) Object.assign(shopState, { mode: 'item', chosen: null });
+  currentData = data;
+  $('result').replaceChildren(...[comparisonPanel(data, openSwap), shoppingPanel(data)].filter(Boolean));
+}
+
+/* ---------- Trocar o item escolhido ---------- */
+function optionButton(m, isCurrent, onPick) {
+  const detail = [m.unitPriceBRL != null ? `${formatBRL(m.unitPriceBRL)}/${m.unit}` : null, m.sizeAdjusted ? `≈ ${formatBRL(m.equivalentBRL)} no tamanho pedido` : null].filter(Boolean).join(' · ');
+  return el('button', { type: 'button', className: `opt${isCurrent ? ' on' : ''}`, onclick: onPick },
+    el('span', { className: 'opt-main' }, el('span', { className: 'opt-title', textContent: m.title }), detail ? el('small', { textContent: detail }) : null),
+    el('span', { className: 'opt-px' }, el('b', { textContent: formatBRL(m.priceBRL) }), isCurrent ? el('small', { textContent: 'Atual' }) : null));
+}
+
+function openSwap(productIndex, sourceName) {
+  const product = currentData?.products[productIndex];
+  const source = product?.sources.find((x) => x.source === sourceName);
+  if (!product || !source) return;
+  const dialog = el('dialog', { className: 'swap-dialog', ariaLabel: `Trocar item em ${sourceName}` });
+  const close = () => { dialog.close(); dialog.remove(); };
+  const choose = (choice) => { close(); applySwap(productIndex, sourceName, choice); };
+  const alternatives = source.alternatives ?? [];
+  dialog.append(
+    el('h3', { textContent: product.query }),
+    el('p', { className: 'muted-note', textContent: `${sourceName}: escolha o item certo. A média e a lista de compras são recalculadas.` }),
+    el('div', { className: 'opts' },
+      ...(source.match ? [optionButton(source.match, true, close)] : []),
+      ...alternatives.map((m, i) => optionButton(m, false, () => choose(i)))),
+    el('div', { className: 'dialog-actions' },
+      source.match ? el('button', { type: 'button', className: 'btn', textContent: 'Nenhum destes', onclick: () => choose(null) }) : null,
+      source.suggested ? el('button', { type: 'button', className: 'btn', textContent: 'Voltar ao sugerido', onclick: () => choose('suggested') }) : null,
+      el('button', { type: 'button', className: 'btn', textContent: 'Fechar', onclick: close })));
+  dialog.addEventListener('cancel', () => dialog.remove());
+  document.body.append(dialog);
+  dialog.showModal();
+}
+
+let recomputing = false;
+async function applySwap(productIndex, sourceName, choice) {
+  if (recomputing || !currentData) return;
+  const next = applyChoice(currentData, productIndex, sourceName, choice);
+  if (next === currentData) return;
+  recomputing = true;
+  $('status').textContent = '';
+  track('swap_match');
+  try {
+    const res = await fetch('/api/recompute', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(toRecomputeBody(next)) });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `erro ${res.status}`);
+    render(mergeRecomputed(next, await res.json()), { fresh: false });
+  } catch (e) {
+    $('status').textContent = `Não foi possível trocar o item: ${e.message}`;
+  } finally {
+    recomputing = false;
+  }
 }
 
 /* ---------- Carregando ---------- */

@@ -17,6 +17,7 @@ const EVENT_LABELS = {
   tab_item: 'Abriu "mais barato por item"',
   tab_store: 'Abriu "um mercado só"',
   pick_store: 'Trocou de mercado no seletor',
+  swap_match: 'Trocou o item escolhido',
   example: 'Usou um exemplo',
 };
 

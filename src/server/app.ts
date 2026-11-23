@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
-import { compare, type SourceEvent } from '../domain/compare.js';
+import { compare, recompute, type SourceEvent } from '../domain/compare.js';
 import { parseList } from '../domain/parseList.js';
 import type { PriceSource } from '../domain/types.js';
 import { createAppMetrics } from './appMetrics.js';
@@ -9,11 +9,12 @@ import { parseClient } from './client.js';
 import { basicAuthOk, createGate, createRateLimiter } from './limits.js';
 import { createDailyStats, type DailyStats } from './dailyStats.js';
 import { createTopList, normalizeQuery, type Metrics } from './metrics.js';
+import { parseRecomputeBody } from './recomputeInput.js';
 
 export const MAX_ITEMS = 20;
 
 /** Ações da interface que viram contagem (lista fechada: nada que o usuário digite entra aqui). */
-export const UI_EVENTS = ['copy_item', 'copy_store', 'print_item', 'print_store', 'tab_item', 'tab_store', 'pick_store', 'example'] as const;
+export const UI_EVENTS = ['copy_item', 'copy_store', 'print_item', 'print_store', 'tab_item', 'tab_store', 'pick_store', 'example', 'swap_match'] as const;
 const isUiEvent = (v: unknown): v is (typeof UI_EVENTS)[number] => typeof v === 'string' && (UI_EVENTS as readonly string[]).includes(v);
 
 const ADMIN_DIR = new URL('./admin/', import.meta.url);
@@ -32,6 +33,8 @@ export type AppDeps = {
   daily?: DailyStats;
   /** Máximo de comparações por IP na janela. Sem isto, não há limite. */
   rateLimit?: { max: number; windowMs: number };
+  /** Limite do recálculo depois de trocar um item (padrão: 600 por hora por IP). */
+  recomputeRateLimit?: { max: number; windowMs: number };
   /** Comparações simultâneas aceitas; as demais recebem 503. */
   maxConcurrent?: number;
   /** true quando o app roda atrás de um proxy (Caddy, Cloudflare…) e o IP real vem do cabeçalho. */
@@ -323,6 +326,19 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       .catch(() => { job.status = 'error'; job.error = 'Não foi possível consultar os mercados agora. Tente de novo.'; })
       .finally(() => { job.finishedAt = Date.now(); admitted.leave(); });
     return reply.code(202).send({ id, total: job.total });
+  });
+
+  // Recalcula médias e cesta com os itens que a pessoa escolheu. Não consulta mercados nem guarda nada.
+  const recomputeLimiter = createRateLimiter(deps.recomputeRateLimit ?? { max: 600, windowMs: 60 * 60 * 1000 });
+  app.post('/api/recompute', async (req, reply) => {
+    if (!recomputeLimiter.check(req.ip).allowed) return reply.code(429).send({ error: 'Muitas trocas seguidas. Tente de novo em instantes.' });
+    const parsed = parseRecomputeBody(req.body);
+    if (!parsed.ok) return reply.code(400).send({ error: parsed.error });
+    const { stats, basket } = recompute(parsed.products);
+    return reply.header('cache-control', 'no-store').send({
+      stats,
+      basket: { ...basket, totals: Object.fromEntries(basket.totals), coverage: Object.fromEntries(basket.coverage) },
+    });
   });
 
   app.get('/api/jobs/:id', async (req, reply) => {

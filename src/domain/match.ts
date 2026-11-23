@@ -114,8 +114,13 @@ const better = (a: Scored, b: Scored): boolean => {
 const best = (items: Scored[]): Scored | null =>
   items.reduce<Scored | null>((acc, cur) => (acc === null || better(cur, acc) ? cur : acc), null);
 
-/** Candidato do mesmo produto em outro tamanho (mesma dimensão), para comparar pelo preço equivalente. */
-function sizeAdjustedCandidate(query: string, offer: Offer): Scored | null {
+type Adjusted = { score: number; distance: number; rank: number };
+
+/**
+ * Nota do mesmo produto em outro tamanho (mesma dimensão), sem o corte de certeza.
+ * Devolve null quando não se aplica: dimensão diferente, tamanho igual, sem tamanho ou embalagem múltipla.
+ */
+function sizeAdjustedScore(query: string, offer: Offer): Adjusted | null {
   const nq = normalize(query);
   const nt = normalize(offer.title);
   const qq = extractQuantity(nq);
@@ -124,9 +129,52 @@ function sizeAdjustedCandidate(query: string, offer: Offer): Scored | null {
   if (isMultipack(nt) && !isMultipack(nq)) return null;
   const q = tokens(query);
   const t = tokens(offer.title);
-  const score = termRecall(queryTerms(query), t) * extrasFactor(q, t);
-  if (score < CERTAIN_THRESHOLD) return null;
-  return { offer, score, words: tokens(offer.title).size, rank: offer.priceBRL * (qq.value / tq.value), distance: Math.abs(Math.log(tq.value / qq.value)) };
+  return {
+    score: termRecall(queryTerms(query), t) * extrasFactor(q, t),
+    distance: Math.abs(Math.log(tq.value / qq.value)),
+    rank: offer.priceBRL * (qq.value / tq.value),
+  };
+}
+
+/** Candidato do mesmo produto em outro tamanho, bom o bastante para comparar pelo preço equivalente. */
+function sizeAdjustedCandidate(query: string, offer: Offer): Scored | null {
+  const adjusted = sizeAdjustedScore(query, offer);
+  if (!adjusted || adjusted.score < CERTAIN_THRESHOLD) return null;
+  return { offer, ...adjusted, words: tokens(offer.title).size };
+}
+
+export type Candidate = { offer: Offer; relevance: number; sizeAdjusted: boolean };
+
+/** Abaixo disto o item não tem relação com o pedido e nem vale a pena oferecê-lo como opção. */
+const CANDIDATE_FLOOR = 0.3;
+
+/**
+ * Os itens mais parecidos com o pedido, do mais ao menos relevante, para a pessoa escolher quando o app errar.
+ * Inclui o que o `pickBest` recusaria (para o caso "sem resultado") e não repete o mesmo item.
+ */
+export function rankCandidates(query: string, offers: Offer[], limit = 5): Candidate[] {
+  const seen = new Set<string>();
+  return offers
+    .flatMap((offer) => {
+      const key = `${offer.title}|${offer.priceBRL}`;
+      if (seen.has(key)) return [];
+      seen.add(key);
+      const adjusted = sizeAdjustedScore(query, offer);
+      const relevance = adjusted ? adjusted.score : scoreMatch(query, offer.title);
+      if (relevance < CANDIDATE_FLOOR) return [];
+      const scored: Scored & { sizeAdjusted: boolean } = {
+        offer,
+        score: relevance,
+        words: tokens(offer.title).size,
+        rank: adjusted ? adjusted.rank : offer.priceBRL,
+        distance: adjusted ? adjusted.distance : 0,
+        sizeAdjusted: adjusted !== null,
+      };
+      return [scored];
+    })
+    .sort((a, b) => (better(a, b) ? -1 : better(b, a) ? 1 : 0))
+    .slice(0, limit)
+    .map(({ offer, score, sizeAdjusted }) => ({ offer, relevance: score, sizeAdjusted }));
 }
 
 export function pickBest(query: string, offers: Offer[]): Pick | null {

@@ -1,25 +1,32 @@
-import { CERTAIN_THRESHOLD, pickBest, searchTerm } from './match.js';
+import { CERTAIN_THRESHOLD, pickBest, rankCandidates, searchTerm } from './match.js';
 import { extractQuantity, scaleToQuantity, unitLabel, unitPrice } from './quantity.js';
 import { basketTotals, computeStats, type Basket, type Priced, type Stats } from './stats.js';
 import { withTimeout } from './timeout.js';
 import { BlockedError, type Offer, type PriceSource, type SourceStatus } from './types.js';
 
+/** Um item de um mercado que casou (ou pode casar) com o produto pedido. */
+export type Match = {
+  title: string;
+  priceBRL: number;
+  /** Preço real convertido para o tamanho pedido (igual a priceBRL quando o tamanho é o mesmo). */
+  equivalentBRL: number;
+  sizeAdjusted: boolean;
+  unitPriceBRL?: number;
+  unit?: 'kg' | 'L' | 'un';
+  score: number;
+  uncertain: boolean;
+  /** A pessoa escolheu este item em vez do sugerido: vale mesmo que a nota seja baixa. */
+  chosenByUser?: boolean;
+  url?: string;
+};
+
 export type SourceResult = {
   source: string;
   status: SourceStatus;
   reason?: string;
-  match?: {
-    title: string;
-    priceBRL: number;
-    /** Preço real convertido para o tamanho pedido (igual a priceBRL quando o tamanho é o mesmo). */
-    equivalentBRL: number;
-    sizeAdjusted: boolean;
-    unitPriceBRL?: number;
-    unit?: 'kg' | 'L' | 'un';
-    score: number;
-    uncertain: boolean;
-    url?: string;
-  };
+  match?: Match;
+  /** Outros itens parecidos da mesma loja, para trocar quando o escolhido estiver errado. */
+  alternatives?: Match[];
 };
 export type ProductResult = { query: string; sources: SourceResult[]; stats: Stats | null };
 /** Evento de uma busca em um mercado (para métricas e logs). */
@@ -48,29 +55,39 @@ async function querySource(query: string, source: PriceSource, timeoutMs: number
   return result;
 }
 
+const MAX_ALTERNATIVES = 4;
+
+function buildMatch(query: string, offer: Offer, score: number, sizeAdjusted: boolean): Match {
+  const wanted = extractQuantity(query);
+  const found = extractQuantity(offer.title);
+  return {
+    title: offer.title,
+    priceBRL: offer.priceBRL,
+    equivalentBRL: sizeAdjusted && wanted && found ? scaleToQuantity(offer.priceBRL, found, wanted) : offer.priceBRL,
+    sizeAdjusted,
+    unitPriceBRL: found ? unitPrice(offer.priceBRL, found) : undefined,
+    unit: found ? unitLabel(found.dim) : undefined,
+    score,
+    uncertain: score < CERTAIN_THRESHOLD,
+    url: offer.url,
+  };
+}
+
+const sameItem = (a: Offer, b: Offer): boolean => a.title === b.title && a.priceBRL === b.priceBRL;
+
 async function runSource(query: string, source: PriceSource, timeoutMs: number): Promise<SourceResult> {
   try {
     const offers = (await withTimeout(source.search(searchTerm(query)), timeoutMs)).filter(validPrice);
     const best = pickBest(query, offers);
-    if (!best) return { source: source.name, status: 'ok' };
-    const { title, priceBRL, url } = best.offer;
-    const wanted = extractQuantity(query);
-    const found = extractQuantity(title);
-    const equivalentBRL = best.sizeAdjusted && wanted && found ? scaleToQuantity(priceBRL, found, wanted) : priceBRL;
+    const alternatives = rankCandidates(query, offers, MAX_ALTERNATIVES + 1)
+      .filter((c) => !best || !sameItem(c.offer, best.offer))
+      .slice(0, MAX_ALTERNATIVES)
+      .map((c) => buildMatch(query, c.offer, c.relevance, c.sizeAdjusted));
     return {
       source: source.name,
       status: 'ok',
-      match: {
-        title,
-        priceBRL,
-        equivalentBRL,
-        sizeAdjusted: best.sizeAdjusted,
-        unitPriceBRL: found ? unitPrice(priceBRL, found) : undefined,
-        unit: found ? unitLabel(found.dim) : undefined,
-        score: best.score,
-        uncertain: best.score < CERTAIN_THRESHOLD,
-        url,
-      },
+      ...(best ? { match: buildMatch(query, best.offer, best.score, best.sizeAdjusted) } : {}),
+      ...(alternatives.length > 0 ? { alternatives } : {}),
     };
   } catch (e) {
     return {
@@ -109,6 +126,12 @@ function flagOutliers(results: SourceResult[]): SourceResult[] {
 
 const priced = (r: SourceResult): Priced[] =>
   r.match && !r.match.uncertain ? [{ source: r.source, priceBRL: r.match.equivalentBRL }] : [];
+
+/** Estatísticas por produto e cesta a partir dos itens atuais (é o que muda quando a pessoa troca um item). */
+export function recompute(products: Array<{ sources: SourceResult[] }>): { stats: Array<Stats | null>; basket: Basket } {
+  const rows = products.map((p) => p.sources.flatMap(priced));
+  return { stats: rows.map(computeStats), basket: basketTotals(rows) };
+}
 
 export async function compare(
   list: string[],

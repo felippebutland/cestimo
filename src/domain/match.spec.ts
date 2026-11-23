@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { scoreMatch, pickBest, searchTerm, MATCH_THRESHOLD, CERTAIN_THRESHOLD } from './match.js';
+import { scoreMatch, pickBest, rankCandidates, searchTerm, MATCH_THRESHOLD, CERTAIN_THRESHOLD } from './match.js';
 import type { Offer } from './types.js';
 
 const o = (title: string, priceBRL: number, source = 's'): Offer => ({ source, title, priceBRL });
@@ -223,6 +223,44 @@ describe('outros produtos que citam o item (bala de café, café solúvel, raç�
   });
   it('o café comum continua confiável', () => {
     expect(scoreMatch('Café 500g', 'Café Melitta Tradicional 500g')).toBeGreaterThanOrEqual(CERTAIN_THRESHOLD);
+  });
+});
+
+describe('rankCandidates: opções para a pessoa escolher', () => {
+  const Q = 'Molho de tomate 340g';
+  it('ordena do mais ao menos relevante, inclusive o que o pickBest rejeitaria', () => {
+    const ranked = rankCandidates(Q, [
+      o('Sardinha 88 com Molho de Tomate 125g', 8.99),
+      o('Molho de Tomate Heinz Tradicional 240g', 5.49),
+      o('Molho tomate etti tradicional 300gr', 1.89),
+    ]);
+    expect(ranked.map((c) => c.offer.title)).toEqual([
+      'Molho tomate etti tradicional 300gr',
+      'Molho de Tomate Heinz Tradicional 240g',
+      'Sardinha 88 com Molho de Tomate 125g',
+    ]);
+  });
+  it('marca o que é de outro tamanho', () => {
+    const [first] = rankCandidates(Q, [o('Molho de Tomate Marca 300g', 3)]);
+    expect(first).toMatchObject({ sizeAdjusted: true });
+  });
+  it('tamanho exato vem antes do mesmo produto em outro tamanho', () => {
+    const ranked = rankCandidates('Arroz Tio João 5kg', [o('Arroz Tio João 1kg', 7), o('Arroz Tio João 5kg', 30)]);
+    expect(ranked[0]!.offer.title).toBe('Arroz Tio João 5kg');
+    expect(ranked[0]!.sizeAdjusted).toBe(false);
+  });
+  it('respeita o limite e descarta o que não tem relação (abaixo do piso)', () => {
+    const offers = [o('Molho de Tomate A 300g', 1), o('Molho de Tomate B 300g', 2), o('Molho de Tomate C 300g', 3), o('Shampoo Infantil 400ml', 9)];
+    expect(rankCandidates(Q, offers, 2)).toHaveLength(2);
+    expect(rankCandidates(Q, offers).map((c) => c.offer.title)).not.toContain('Shampoo Infantil 400ml');
+  });
+  it('lista vazia e consulta sem termos não geram candidatos', () => {
+    expect(rankCandidates(Q, [])).toEqual([]);
+    expect(rankCandidates('', [o('Molho', 1)])).toEqual([]);
+  });
+  it('não repete títulos iguais', () => {
+    const ranked = rankCandidates(Q, [o('Molho de Tomate Marca 300g', 3), o('Molho de Tomate Marca 300g', 3)]);
+    expect(ranked).toHaveLength(1);
   });
 });
 
