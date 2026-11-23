@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <link rel="icon" href="favicon.ico" sizes="48x48" />
+  <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+  <meta name="theme-color" content="#f6f7f8" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#0d0f12" media="(prefers-color-scheme: dark)" />
+  <title>Cestimo — comparador de preços de supermercados</title>
+  <meta name="description" content="Compare os preços dos supermercados da sua cidade e descubra onde a sua lista de compras sai mais barata." />
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f6f7f8; --panel: #ffffff; --line: #dfe2e6; --line-soft: #eceef1; --text: #16181d; --muted: #667085;
+      --ink: #14171c; --ink-fg: #ffffff; --good: #0a7a3d; --good-bg: #e9f5ee; --warn: #9a5b00; --bad: #b42318; --focus: #2563eb;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0d0f12; --panel: #14171b; --line: #262b31; --line-soft: #1c2025; --text: #e6e8eb; --muted: #8b939d;
+        --ink: #eceef0; --ink-fg: #0d0f12; --good: #4fc084; --good-bg: #13241b; --warn: #e0ac5a; --bad: #ef8579; --focus: #6b9cff;
+      }
+    }
+    * { box-sizing: border-box; }
+    html { -webkit-text-size-adjust: 100%; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 14.5px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; -webkit-font-smoothing: antialiased; }
+    .wrap { max-width: 1180px; margin: 0 auto; padding: 0 20px 56px; }
+    b, strong { font-weight: 600; }
+    :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+    /* Cabeçalho */
+    header.top { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding: 22px 0 18px; border-bottom: 1px solid var(--line); margin-bottom: 22px; }
+    header.top h1 { margin: 0; font-size: 18px; font-weight: 650; letter-spacing: -.01em; }
+    header.top p { margin: 0; color: var(--muted); font-size: 13px; }
+
+    /* Painéis */
+    .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+    .panel-h { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding: 14px 18px; border-bottom: 1px solid var(--line); }
+    .panel-h h2 { margin: 0; font-size: 14.5px; font-weight: 650; }
+    .panel-b { padding: 18px; }
+
+    /* Entrada */
+    label.lbl { display: block; font-weight: 600; margin-bottom: 6px; }
+    .hint { color: var(--muted); font-size: 13px; font-weight: 400; }
+    textarea { width: 100%; min-height: 112px; padding: 10px 12px; resize: vertical; background: var(--panel); color: inherit; border: 1px solid var(--line); border-radius: 6px; font: inherit; line-height: 1.55; }
+    textarea:focus { outline: none; border-color: var(--ink); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ink) 12%, transparent); }
+    .examples { margin: 10px 0 0; color: var(--muted); font-size: 13px; }
+    .examples button { border: 0; background: none; padding: 0; margin-left: 12px; color: var(--text); font: inherit; text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 3px; cursor: pointer; }
+    .examples button:hover { text-decoration-color: var(--text); }
+    .actions { display: flex; align-items: center; gap: 14px; margin-top: 16px; flex-wrap: wrap; }
+    .btn { border: 1px solid var(--line); background: var(--panel); color: var(--text); padding: 7px 13px; border-radius: 6px; font: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer; }
+    .btn:hover { border-color: var(--muted); }
+    .btn.primary { background: var(--ink); color: var(--ink-fg); border-color: var(--ink); padding: 9px 18px; font-size: 14.5px; }
+    .btn.primary:hover:not(:disabled) { opacity: .88; }
+    .btn:disabled { opacity: .55; cursor: wait; }
+    #status { margin-top: 12px; color: var(--bad); }
+    #status:empty { display: none; }
+
+    /* Carregando */
+    #loading { display: none; margin-top: 18px; overflow: hidden; }
+    #loading.on { display: block; }
+    .bar { height: 2px; background: var(--line-soft); overflow: hidden; }
+    .bar i { display: block; width: 32%; height: 100%; background: var(--ink); animation: slide 1.3s ease-in-out infinite; }
+    .load-row { display: flex; justify-content: space-between; gap: 12px; padding: 14px 18px 4px; }
+    .load-row span { color: var(--muted); font-variant-numeric: tabular-nums; }
+    .load-src { padding: 0 18px 16px; color: var(--muted); font-size: 13px; }
+    .load-src .on { color: var(--text); font-weight: 600; }
+    @keyframes slide { from { transform: translateX(-110%); } to { transform: translateX(340%); } }
+
+    /* Resultado */
+    #result { margin-top: 20px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; }
+    .tabs { display: flex; gap: 20px; padding: 0 18px; border-bottom: 1px solid var(--line); }
+    .tab { border: 0; border-bottom: 2px solid transparent; background: none; color: var(--muted); padding: 11px 0 9px; margin-bottom: -1px; font: inherit; font-weight: 600; cursor: pointer; }
+    .tab.on { color: var(--text); border-bottom-color: var(--ink); }
+    .note { margin: 0 0 14px; padding: 8px 12px; border-left: 3px solid var(--good); background: var(--good-bg); font-size: 13px; }
+    .note.warn { border-left-color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); }
+    .muted-note { color: var(--muted); font-size: 13px; margin: 12px 0 0; }
+    .picker { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+    .picker label { font-weight: 600; }
+    .select { appearance: none; -webkit-appearance: none; max-width: 100%; padding: 7px 34px 7px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none' stroke='%23888' stroke-width='1.6'%3E%3Cpath d='M1 1l4 4 4-4'/%3E%3C/svg%3E") no-repeat right 12px center; color: var(--text); font: inherit; font-size: 13.5px; cursor: pointer; }
+    .select:hover { border-color: var(--muted); }
+    .store-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
+    .store { border: 1px solid var(--line); border-radius: 6px; break-inside: avoid; }
+    .store-h { display: flex; justify-content: space-between; align-items: baseline; padding: 9px 12px; border-bottom: 1px solid var(--line); background: var(--line-soft); }
+    .store-h span { font-variant-numeric: tabular-nums; font-weight: 600; }
+    .li { display: flex; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--line-soft); }
+    .li:last-child { border-bottom: 0; }
+    .box { width: 14px; height: 14px; border: 1.5px solid var(--muted); border-radius: 3px; margin-top: 4px; flex: none; }
+    .li-main { flex: 1; min-width: 0; }
+    .li-main small { display: block; color: var(--muted); font-size: 12.5px; line-height: 1.35; }
+    .li-price { font-variant-numeric: tabular-nums; white-space: nowrap; font-weight: 600; }
+    .total { display: flex; justify-content: flex-end; align-items: baseline; gap: 12px; margin-top: 16px; }
+    .total .muted-note { margin: 0 auto 0 0; }
+    .total b { font-size: 20px; font-variant-numeric: tabular-nums; }
+
+    /* Tabela comparativa */
+    .scroll { overflow-x: auto; }
+    table { width: 100%; min-width: 900px; table-layout: fixed; border-collapse: separate; border-spacing: 0; }
+    th.prod { width: 150px; }
+    th, td { padding: 10px 12px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--line-soft); }
+    thead th { font-size: 12.5px; font-weight: 600; color: var(--muted); background: var(--panel); border-bottom: 1px solid var(--line); white-space: nowrap; }
+    tbody tr:last-child td { border-bottom: 0; }
+    th.prod, td.prod { position: sticky; left: 0; background: var(--panel); font-weight: 600; border-right: 1px solid var(--line-soft); z-index: 1; overflow-wrap: anywhere; }
+    td.cell { overflow: hidden; }
+    .px { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.3; }
+    .sub { color: var(--muted); font-size: 12px; line-height: 1.35; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .sub a { color: inherit; text-decoration: none; }
+    .sub a:hover { text-decoration: underline; }
+    td.best { background: var(--good-bg); }
+    td.best .px { color: var(--good); }
+    .flag { font-size: 12px; font-weight: 600; color: var(--warn); }
+    .flag.bad { color: var(--bad); }
+    .none { color: var(--muted); font-size: 13px; }
+    tfoot td { border-top: 1px solid var(--line); border-bottom: 0; background: var(--panel); }
+    tfoot td.prod { background: var(--panel); }
+    tfoot td.best { background: var(--good-bg); }
+    .legend { color: var(--muted); font-size: 12.5px; padding: 12px 18px; border-top: 1px solid var(--line); margin: 0; }
+
+    footer { margin-top: 36px; color: var(--muted); font-size: 12.5px; }
+    footer a { color: inherit; }
+
+    @media (max-width: 600px) {
+      .wrap { padding: 0 14px 40px; }
+      header.top { flex-direction: column; gap: 2px; }
+      th.prod { width: 112px; }
+    }
+    @media print {
+      body { background: #fff; color: #000; }
+      header.top, .input-panel, #loading, footer, .detail, .no-print, #status { display: none !important; }
+      #result { margin: 0; }
+      .panel { border: 0; }
+      .panel-h, .panel-b { padding-left: 0; padding-right: 0; }
+      .store-h { background: none; }
+      .picker { display: none; }
+    }
+    @media (prefers-reduced-motion: reduce) { .bar i { animation: none; width: 100%; opacity: .4; } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="top">
+      <h1 id="app-title">Cestimo</h1>
+      <p id="app-tagline">Comparador de preços de supermercados</p>
+    </header>
+
+    <main>
+      <section class="panel input-panel">
+        <div class="panel-b">
+          <label class="lbl" for="list">Lista de compras <span class="hint">· um produto por linha, com o tamanho (ex.: Ovos 30un, Arroz 5kg)</span></label>
+          <textarea id="list" placeholder="Arroz Tio João 5kg&#10;Feijão preto 1kg&#10;Leite integral 1L&#10;Ovos 30un"></textarea>
+          <p class="examples" id="examples">Exemplos:</p>
+          <div class="actions">
+            <button id="go" class="btn primary" type="button">Comparar preços</button>
+            <span class="hint">Atalho: Cmd/Ctrl + Enter</span>
+          </div>
+          <div id="status" role="alert"></div>
+        </div>
+      </section>
+
+      <section id="loading" class="panel" aria-live="polite">
+        <div class="bar"><i></i></div>
+        <div class="load-row"><b id="load-title">Consultando os mercados…</b><span id="load-sub"></span></div>
+        <div class="load-src" id="chips"></div>
+      </section>
+
+      <section id="result"></section>
+    </main>
+
+    <footer>Preços lidos dos sites públicos das lojas. Podem diferir do preço na loja física; confira antes de decidir. · <a href="privacidade.html">Privacidade</a></footer>
+  </div>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

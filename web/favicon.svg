@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Cestimo">
+  <style>
+    .bg { fill: #14171c; }
+    .basket { fill: #ffffff; }
+    .handle { stroke: #ffffff; }
+    .tick { stroke: #1f9d55; }
+    @media (prefers-color-scheme: dark) {
+      .bg { fill: #eceef0; }
+      .basket { fill: #14171c; }
+      .handle { stroke: #14171c; }
+      .tick { stroke: #4fc084; }
+    }
+  </style>
+  <rect class="bg" width="64" height="64" rx="14"/>
+  <path class="handle" d="M21 29c0-14 22-14 22 0" fill="none" stroke-width="4.5" stroke-linecap="round"/>
+  <path class="basket" d="M11 29h42l-4.6 21.2a3 3 0 0 1-2.9 2.3H18.5a3 3 0 0 1-2.9-2.3z"/>
+  <path class="tick" d="M24.5 39.5l5.5 5.5 10.5-12" fill="none" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

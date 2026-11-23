@@ -1,0 +1,5 @@
+{$DOMAIN} {
+	encode zstd gzip
+	reverse_proxy cestimo:3000
+	header -Server
+}

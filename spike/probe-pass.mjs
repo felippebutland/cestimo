@@ -1,0 +1,12 @@
+import { chromium } from 'playwright';
+import { writeFileSync } from 'node:fs';
+const b = await chromium.launch();
+const p = await (await b.newContext({ userAgent: 'Mozilla/5.0 (Macintosh) Chrome/150 Safari/537.36', locale: 'pt-BR', viewport: { width: 1400, height: 900 } })).newPage();
+let n = 0;
+p.on('response', async (r) => { const u = r.url(); if (/vipcommerce/.test(u) && /produto/i.test(u) && n < 3 && /arroz|termo|busca|pesquisa/i.test(u)) { n++; const t = await r.text(); writeFileSync(`fixtures/passarela-${n}.json`, t); console.log('VIP', r.status(), u.slice(0, 260)); console.log('BODY', t.slice(0, 700)); } });
+await p.goto('https://www.passarelaemcasa.com.br/', { waitUntil: 'networkidle', timeout: 45000 }).catch((e) => console.log(e.message));
+const inp = p.locator('input[placeholder="O que você precisa?"]:visible').first();
+await inp.fill('arroz 5kg'); await inp.press('Enter'); await p.waitForTimeout(5000);
+console.log('URL', p.url());
+console.log('TEXT', (await p.evaluate(() => document.body.innerText)).slice(0, 500).replace(/\n+/g, ' | '));
+await b.close();

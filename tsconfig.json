@@ -1,0 +1,8 @@
+{
+  "compilerOptions": {
+    "target": "ES2022", "module": "NodeNext", "moduleResolution": "NodeNext",
+    "strict": true, "allowJs": true, "noUncheckedIndexedAccess": true, "skipLibCheck": true,
+    "esModuleInterop": true, "types": ["node"], "noEmit": true, "lib": ["ES2023", "DOM"]
+  },
+  "include": ["src", "web", "scripts"]
+}

@@ -1,0 +1,46 @@
+# Produção: app + Caddy (HTTPS automático). Uso:
+#   cp .env.example .env   # preencha DOMAIN e METRICS_TOKEN
+#   docker compose -f docker-compose.prod.yml up -d --build
+services:
+  cestimo:
+    build: .
+    image: cestimo
+    restart: unless-stopped
+    environment:
+      MARKETS_FILE: /app/config/markets.json
+      TRUST_PROXY: "1"                     # o IP real vem do Caddy
+      METRICS_TOKEN: ${METRICS_TOKEN:?defina METRICS_TOKEN no arquivo .env}
+      APP_NAME: ${APP_NAME:-Cestimo}
+      RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-20}
+      RATE_LIMIT_WINDOW_MIN: ${RATE_LIMIT_WINDOW_MIN:-60}
+      MAX_CONCURRENT: ${MAX_CONCURRENT:-2}
+    volumes:
+      - ./config:/app/config:ro
+    expose:
+      - "3000"                             # só acessível pela rede interna do Compose
+    init: true
+    shm_size: "1gb"
+    mem_limit: 1536m
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }   # logs com rotação (sem IP; ver privacidade)
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:?defina DOMAIN no arquivo .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      cestimo:
+        condition: service_healthy
+
+volumes:
+  caddy_data:
+  caddy_config:

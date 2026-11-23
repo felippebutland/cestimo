@@ -1,0 +1,10 @@
+node_modules/
+.superpowers/
+spike/node_modules/
+dist/
+.DS_Store
+.env
+# páginas e capturas de terceiros da fase de descoberta (não publicar)
+spike/*.html
+spike/*.png
+fixtures/*.html

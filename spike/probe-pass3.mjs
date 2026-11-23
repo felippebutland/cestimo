@@ -1,0 +1,12 @@
+import { chromium } from 'playwright';
+const b = await chromium.launch();
+const p = await (await b.newContext({ userAgent: 'Mozilla/5.0 (Macintosh) Chrome/150 Safari/537.36', locale: 'pt-BR' })).newPage();
+let cd = null;
+p.on('response', async (r) => { if (/retiradas$/.test(r.url())) { const j = JSON.parse(await r.text()); const c = j.data.find((x) => /Chapec/.test(x.nome)); cd = c.vipcommerce_centro_distribuicao_id; console.log('CD', cd, 'id', c.id); } });
+await p.goto('https://www.passarelaemcasa.com.br/', { waitUntil: 'networkidle', timeout: 45000 }).catch((e) => console.log(e.message));
+await p.evaluate((id) => localStorage.setItem('cdSelecionado', String(id)), cd);
+p.on('response', async (r) => { if (/buscas\/produtos\/termo\/[^/?]+\?/.test(r.url())) { const j = JSON.parse(await r.text()); console.log('SEARCH', r.url().slice(0, 150)); console.log((j.data.produtos || []).slice(0, 3).map((x) => `${x.descricao} ${x.preco}`).join(' | ')); } });
+await p.goto('https://www.passarelaemcasa.com.br/busca?termo=arroz%205kg', { waitUntil: 'networkidle', timeout: 45000 }).catch((e) => console.log(e.message));
+await p.waitForTimeout(1500);
+console.log('LOJA', (await p.evaluate(() => document.body.innerText)).slice(0, 80).replace(/\n+/g, ' | '));
+await b.close();
