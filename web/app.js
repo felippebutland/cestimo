@@ -8,6 +8,15 @@ const el = (tag, props = {}, ...children) => {
   return node;
 };
 
+/** Conta uma ação anônima (só o nome da ação, nunca o conteúdo da lista). Falhas são ignoradas. */
+function track(name) {
+  try {
+    fetch('/api/event', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name }), keepalive: true }).catch(() => {});
+  } catch {
+    // sem rede: sem problema
+  }
+}
+
 let SOURCES = [];
 const EXAMPLES = ['Arroz Tio João 5kg', 'Feijão preto 1kg', 'Leite integral 1L', 'Ovos 30un', 'Café 500g'];
 
@@ -32,6 +41,7 @@ for (const ex of EXAMPLES) {
     const lines = area.value.split('\n').map((l) => l.trim()).filter(Boolean);
     if (!lines.includes(ex)) area.value = [...lines, ex].join('\n');
     area.focus();
+    track('example');
   });
   $('examples').append(link);
 }
@@ -148,7 +158,7 @@ function shoppingPanel(data) {
   const select = el('select', { id: 'store-select', className: 'select' },
     ...single.options.map((o) => el('option', { value: o.source, textContent: optionLabel(o, single.recommended) })));
   const picker = el('div', { className: 'picker no-print' }, el('label', { htmlFor: 'store-select', textContent: 'Mercado' }), select);
-  select.addEventListener('change', () => { chosen = select.value; paint(); });
+  select.addEventListener('change', () => { chosen = select.value; track('pick_store'); paint(); });
 
   const paint = () => {
     single = buildSingleStoreList(data, chosen ?? undefined);
@@ -166,17 +176,21 @@ function shoppingPanel(data) {
       list.missing.length > 0 && !(mode === 'store' && !single.complete) ? el('p', { className: 'muted-note', textContent: `Não encontrados: ${list.missing.join(', ')}` }) : null,
     ].filter(Boolean));
   };
-  tabItem.addEventListener('click', () => { mode = 'item'; paint(); });
-  tabStore.addEventListener('click', () => { mode = 'store'; paint(); });
+  tabItem.addEventListener('click', () => { if (mode !== 'item') track('tab_item'); mode = 'item'; paint(); });
+  tabStore.addEventListener('click', () => { if (mode !== 'store') track('tab_store'); mode = 'store'; paint(); });
 
   const copy = el('button', { type: 'button', className: 'btn', textContent: 'Copiar texto' });
   copy.addEventListener('click', async () => {
+    track(mode === 'item' ? 'copy_item' : 'copy_store');
     await copyText(toText(current()));
     copy.textContent = 'Copiado';
     setTimeout(() => { copy.textContent = 'Copiar texto'; }, 2000);
   });
   const print = el('button', { type: 'button', className: 'btn', textContent: 'Imprimir / PDF' });
-  print.addEventListener('click', () => window.print());
+  print.addEventListener('click', () => {
+    track(mode === 'item' ? 'print_item' : 'print_store');
+    window.print();
+  });
 
   paint();
   return el('section', { className: 'panel' },

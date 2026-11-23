@@ -8,8 +8,12 @@ services:
     volumes:
       # Para trocar de cidade/mercados basta editar config/markets.json e reiniciar (sem rebuild).
       - ./config:/app/config:ro
+      - cestimo_data:/app/data      # números do painel (sobrevivem a reinícios)
     environment:
       MARKETS_FILE: /app/config/markets.json
     init: true            # encerra processos filhos do Chromium corretamente
     shm_size: "1gb"       # o Chromium usa /dev/shm; o padrão do Docker (64 MB) é pouco
     restart: unless-stopped
+
+volumes:
+  cestimo_data:

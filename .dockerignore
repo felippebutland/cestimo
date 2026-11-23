@@ -5,6 +5,7 @@ spike
 docs
 fixtures
 dist
+data
 **/*.spec.ts
 vitest.config.ts
 .env

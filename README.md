@@ -184,45 +184,57 @@ Cada linha mostra ✅ (achou itens), ⚠️ (0 itens: provavelmente loja ou IDs 
 | Erro `o site informou erro: … 503` | o **próprio site do mercado** está com problema (comum em horários de pico ou manutenção). Tente de novo mais tarde |
 | Mercado com ❌ no meio da lista | o app continua funcionando: aquela coluna aparece como "Erro" |
 
-## Métricas e registro de buscas
+## Painel, métricas e registro de buscas
 
-O app registra o que acontece, **sem guardar quem buscou** (ver [`web/privacidade.html`](web/privacidade.html)). Tudo usa *tags* (rótulos) como `source` (mercado) e `result`.
+O app registra o que acontece, **sem guardar quem fez**: só contagens (ver [`web/privacidade.html`](web/privacidade.html)).
 
-**Ativação:** defina `METRICS_TOKEN`. Sem ele, os endpoints abaixo não existem (404). O acesso é por senha (Basic): usuário qualquer, senha = o token.
+**Ativação:** defina `METRICS_TOKEN`. Sem ele, o painel e os endpoints abaixo não existem (404). O acesso é por senha (Basic): usuário qualquer, senha = o token.
+
+### Painel `/admin`
+
+Abra `https://seu-dominio/admin` no navegador (ele pede a senha) e veja, atualizado a cada 30 s:
+
+- **Visitas, comparações, itens buscados, itens por lista, tempo médio.**
+- **Listas copiadas** e a **taxa de cópia** (cópias ÷ comparações), **impressões**, quantas vezes trocaram de modo, escolheram um mercado ou usaram um exemplo.
+- **Economia estimada:** soma, por produto, de *preço médio − preço mais barato*, ou seja, quanto as pessoas deixam de gastar escolhendo o mercado mais barato.
+- **% de itens encontrados** e **saúde de cada mercado** (achou / sem item / erro / indisponível e tempo médio).
+- **Gráficos dos últimos 14 dias** e o ranking dos **produtos mais buscados**.
+
+Os números ficam gravados em disco (`DATA_DIR`, padrão `./data`; no Docker, o volume `cestimo_data`) a cada 30 s e ao encerrar, então **sobrevivem a reinícios e a atualizações**. Só não dá para saber *quem* copiou, de propósito: o app conta ações, não pessoas.
+
+### Endpoints
 
 | Endpoint | Para quê |
 |---|---|
-| `GET /admin/stats` | resumo em JSON, legível no navegador: saúde de cada mercado, requisições por resultado, cache e **produtos mais buscados** |
-| `GET /metrics` | formato Prometheus, para Grafana/Prometheus/Grafana Cloud |
+| `GET /admin` | painel (HTML) |
+| `GET /admin/stats` | os mesmos números em JSON |
+| `GET /metrics` | formato Prometheus, com tags (`source`, `result`, `event`, `outcome`) |
+| `POST /api/event` | a interface avisa uma ação anônima (copiar, imprimir…). Só aceita nomes de uma lista fechada |
 | `GET /healthz` | verificação de saúde (sem senha) |
 
-**Saúde das fontes** (`source_searches_total{source,result}`): `result` é `found` (achou), `empty` (o site respondeu, mas sem item confiável), `erro` ou `indisponivel`. Quando um site muda e o adaptador quebra, `erro` sobe naquele `source`. O tempo vem em `source_search_duration_seconds{source}`.
+**Saúde das fontes** (`source_searches_total{source,result}`): `result` é `found`, `empty`, `erro` ou `indisponivel`. Quando um site muda e o adaptador quebra, `erro` sobe naquele `source`. Tempo em `source_search_duration_seconds{source}`.
 
-**Uso do app:** `compare_requests_total{outcome}` (`ok`, `bad_request`, `rate_limited`, `busy`, `error`), `compare_items` (itens por lista), `compare_duration_seconds` e `cache_events_total{source,event}` (`hit`/`miss`).
+**Uso:** `page_views_total`, `compare_requests_total{outcome}`, `compare_items`, `compare_duration_seconds`, `list_items_total{result}`, `savings_brl_total`, `ui_events_total{event}` e `cache_events_total{source,event}`.
 
-**Produtos buscados:** ranking dos 20 termos mais buscados em `/admin/stats` (`top`). Os termos são normalizados (minúsculas, sem espaços extras) e guardados só como contagem, em memória.
-
-**Logs estruturados (uma linha JSON por evento):**
+**Logs estruturados (uma linha JSON por evento, sem IP):**
 
 ```json
 {"event":"source_search","source":"Comper","result":"found","ms":1432}
 {"event":"compare","items":4,"seconds":18.2,"queries":["arroz tio joão 5kg","ovos 30un"]}
 ```
 
-Os logs não têm IP nem cabeçalhos. Para analisar: `docker compose logs cestimo | grep '"event":"compare"'`.
+### Gráficos históricos (opcional): Prometheus + Grafana
 
-Exemplo de coleta no Prometheus:
+O painel `/admin` já mostra os números de hoje e dos últimos 14 dias. Para histórico longo (90 dias), alertas e gráficos livres, ative o perfil `monitoring`:
 
-```yaml
-scrape_configs:
-  - job_name: cestimo
-    scheme: https
-    metrics_path: /metrics
-    basic_auth: { username: admin, password: SEU_METRICS_TOKEN }
-    static_configs: [{ targets: ["seu-dominio.com.br"] }]
+```bash
+# no .env: defina GRAFANA_PASSWORD
+docker compose -f docker-compose.prod.yml --profile monitoring up -d
 ```
 
-> As métricas ficam em memória e zeram quando o container reinicia (comportamento normal de contadores Prometheus). Para histórico, use o Prometheus/Grafana ou guarde os logs.
+O Grafana abre em `https://seu-dominio/grafana/` (usuário `admin`) já com o painel **Cestimo · visão geral** (visitas, comparações, cópias, economia, falhas e tempo por mercado, cache, recusas). Os dois serviços usam ~400 MB cada no limite; pense nisso ao escolher o servidor.
+
+> Esse perfil foi validado só na sintaxe (compose, YAML, JSON e Caddyfile). Não foi executado de ponta a ponta. Se algo falhar ao subir, `docker compose ... logs prometheus grafana` mostra o motivo.
 
 ## Publicar como serviço público
 
@@ -241,7 +253,7 @@ O Caddy emite o certificado HTTPS sozinho. O app não fica exposto: só o Caddy 
 **Checklist antes de divulgar:**
 
 - [ ] Domínio com HTTPS funcionando e `https://seu-dominio/healthz` respondendo.
-- [ ] `https://seu-dominio/admin/stats` pede senha.
+- [ ] `https://seu-dominio/admin` pede senha e mostra o painel.
 - [ ] Nome conferido: antes de usar o nome comercialmente, consulte a disponibilidade do domínio no Registro.br e da marca no INPI.
 - [ ] Você leu os termos de uso dos sites consultados. O serviço faz uma busca por consulta, com cache e limites; **não aumente a frequência** nem use para coleta em massa. Se um mercado pedir para parar, remova-o do `config/markets.json`.
 - [ ] Alarme simples: um monitor externo (ex.: UptimeRobot) em `/healthz`.
@@ -255,11 +267,15 @@ O Caddy emite o certificado HTTPS sozinho. O app não fica exposto: só o Caddy 
 | `PORT` / `HOST` | `3000` / `127.0.0.1` | onde o servidor escuta (no Docker, `0.0.0.0`) |
 | `MARKETS_FILE` | `config/markets.json` | arquivo de mercados |
 | `APP_NAME` | `Cestimo` | nome exibido no site |
-| `METRICS_TOKEN` | vazio | senha de `/metrics` e `/admin/stats` (vazio = endpoints desativados) |
+| `METRICS_TOKEN` | vazio | senha de `/admin`, `/metrics` e `/admin/stats` (vazio = desativados) |
 | `RATE_LIMIT_MAX` | `20` | comparações por IP na janela |
 | `RATE_LIMIT_WINDOW_MIN` | `60` | tamanho da janela, em minutos |
 | `MAX_CONCURRENT` | `2` | comparações simultâneas |
 | `TRUST_PROXY` | desligado | `1` quando há proxy na frente (Caddy/Cloudflare), para ler o IP real |
+| `DATA_DIR` | `./data` | onde gravar os números do painel (no Docker: `/app/data`, volume) |
+| `SAVE_EVERY_SECONDS` | `30` | de quanto em quanto tempo gravar em disco |
+| `TZ_OFFSET_MIN` | `-180` | fuso dos gráficos por dia, em minutos do UTC (-180 = Brasília) |
+| `GRAFANA_PASSWORD` | vazio | senha do Grafana (só no perfil `monitoring`) |
 
 ## Adicionando uma plataforma nova
 
@@ -278,9 +294,10 @@ As anotações da investigação das plataformas atuais estão em [`spike/FINDIN
 config/markets.json   mercados e cidade (edite aqui)
 src/domain/           regras puras: lista, quantidades, match, estatísticas, comparação
 src/sources/          adaptadores por plataforma + navegador (Playwright)
-src/server/           API (Fastify), cache e leitura do config
+src/server/           API (Fastify), cache, métricas, painel (admin/) e leitura do config
 web/                  interface (HTML/JS puro) e lista de compras
-scripts/              utilitários (markets:check)
+scripts/              utilitários (markets:check, build-icons)
+monitoring/           Prometheus e Grafana (perfil opcional do Docker)
 fixtures/             respostas reais usadas nos testes
 spike/                anotações e scripts da fase de descoberta (descartáveis)
 ```

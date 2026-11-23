@@ -22,6 +22,10 @@ COPY web ./web
 COPY config ./config
 COPY scripts ./scripts
 
+# Números do painel (monte um volume aqui para sobreviverem a atualizações).
+RUN mkdir -p /app/data && chown node:node /app/data
+ENV DATA_DIR=/app/data
+
 # O processo roda sem privilégios de root.
 USER node
 EXPOSE 3000

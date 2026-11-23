@@ -11,6 +11,15 @@ const fmtLabels = (l: Labels): string => {
   return parts.length ? `{${parts.join(',')}}` : '';
 };
 
+export type MetricsState = {
+  counters: Record<string, Array<{ labels: Labels; value: number }>>;
+  hists: Record<string, Array<{ labels: Labels; counts: number[]; sum: number; count: number }>>;
+};
+
+const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+const isLabels = (v: unknown): v is Labels => isObj(v) && Object.values(v).every((x) => typeof x === 'string');
+const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+
 /** Métricas com tags (labels) no formato Prometheus, sem dependências. Métrica não definida é ignorada. */
 export function createMetrics() {
   const defs = new Map<string, Def>();
@@ -53,6 +62,40 @@ export function createMetrics() {
       return [...(hists.get(name)?.values() ?? [])].map(({ labels, count, sum }) => ({ labels, count, sum, avg: count ? sum / count : 0 }));
     },
 
+    /** Estado serializável, para gravar em disco. */
+    snapshot(): MetricsState {
+      return {
+        counters: Object.fromEntries([...counters].map(([name, cells]) => [name, [...cells.values()].map(({ labels, value }) => ({ labels, value }))])),
+        hists: Object.fromEntries([...hists].map(([name, cells]) => [name, [...cells.values()].map(({ labels, counts, sum, count }) => ({ labels, counts: [...counts], sum, count }))])),
+      };
+    },
+
+    /** Carrega um estado salvo; ignora o que não existe mais ou está malformado. */
+    restore(state: unknown): void {
+      if (!isObj(state)) return;
+      const c = isObj(state.counters) ? state.counters : {};
+      for (const [name, cells] of Object.entries(c)) {
+        if (defs.get(name)?.kind !== 'counter' || !Array.isArray(cells)) continue;
+        const map = counters.get(name) ?? new Map<string, CounterCell>();
+        for (const cell of cells) {
+          if (isObj(cell) && isLabels(cell.labels) && isNum(cell.value)) map.set(labelKey(cell.labels), { labels: cell.labels, value: cell.value });
+        }
+        counters.set(name, map);
+      }
+      const h = isObj(state.hists) ? state.hists : {};
+      for (const [name, cells] of Object.entries(h)) {
+        const def = defs.get(name);
+        if (def?.kind !== 'histogram' || !Array.isArray(cells)) continue;
+        const map = hists.get(name) ?? new Map<string, HistCell>();
+        for (const cell of cells) {
+          if (!isObj(cell) || !isLabels(cell.labels) || !isNum(cell.sum) || !isNum(cell.count)) continue;
+          if (!Array.isArray(cell.counts) || cell.counts.length !== def.buckets.length || !cell.counts.every(isNum)) continue;
+          map.set(labelKey(cell.labels), { labels: cell.labels, counts: [...cell.counts], sum: cell.sum, count: cell.count });
+        }
+        hists.set(name, map);
+      }
+    },
+
     render(): string {
       const lines: string[] = [];
       for (const [name, def] of defs) {
@@ -88,6 +131,18 @@ export function createTopList(max: number) {
       if (items.size <= max) return;
       const [evict] = [...items.entries()].sort(([, a], [, b]) => a.count - b.count || b.seq - a.seq);
       if (evict) items.delete(evict[0]);
+    },
+    snapshot(): Array<[string, number, number]> {
+      return [...items.entries()].map(([term, { count, seq: sq }]) => [term, count, sq]);
+    },
+    restore(entries: unknown): void {
+      if (!Array.isArray(entries)) return;
+      entries.forEach((e, i) => {
+        if (!Array.isArray(e) || typeof e[0] !== 'string' || !isNum(e[1]) || e[1] <= 0) return;
+        const sq = isNum(e[2]) ? e[2] : i;
+        items.set(e[0], { count: e[1], seq: sq });
+        seq = Math.max(seq, sq + 1);
+      });
     },
     top(n: number): Array<{ term: string; count: number }> {
       return [...items.entries()]

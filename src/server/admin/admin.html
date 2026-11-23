@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>Painel · Cestimo</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f6f7f8; --panel: #fff; --line: #dfe2e6; --line-soft: #eceef1; --text: #16181d; --muted: #667085;
+      --ink: #14171c; --good: #0a7a3d; --good-bg: #e9f5ee; --warn: #9a5b00; --bad: #b42318; --bar: #14171c;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg: #0d0f12; --panel: #14171b; --line: #262b31; --line-soft: #1c2025; --text: #e6e8eb; --muted: #8b939d;
+        --ink: #eceef0; --good: #4fc084; --good-bg: #13241b; --warn: #e0ac5a; --bad: #ef8579; --bar: #cfd3d8; }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 14.5px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; -webkit-font-smoothing: antialiased; }
+    .wrap { max-width: 1180px; margin: 0 auto; padding: 0 20px 56px; }
+    header { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding: 22px 0 16px; border-bottom: 1px solid var(--line); margin-bottom: 20px; flex-wrap: wrap; }
+    h1 { margin: 0; font-size: 18px; font-weight: 650; }
+    header p { margin: 0; color: var(--muted); font-size: 13px; }
+    h2 { margin: 0 0 12px; font-size: 14.5px; font-weight: 650; }
+    .grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
+    .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; }
+    .card .label { color: var(--muted); font-size: 12.5px; }
+    .card .num { font-size: 28px; font-weight: 650; letter-spacing: -.02em; font-variant-numeric: tabular-nums; line-height: 1.25; margin-top: 2px; }
+    .card .hint { color: var(--muted); font-size: 12px; margin-top: 2px; }
+    .card.hl .num { color: var(--good); }
+    section { margin-top: 24px; }
+    .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px; }
+    .charts { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+    .chart h3 { margin: 0 0 8px; font-size: 13px; font-weight: 600; color: var(--muted); display: flex; justify-content: space-between; }
+    .chart h3 b { color: var(--text); font-variant-numeric: tabular-nums; }
+    svg { width: 100%; height: 110px; display: block; }
+    svg .bar { fill: var(--bar); opacity: .85; }
+    svg .bar.today { opacity: 1; }
+    svg text { fill: var(--muted); font-size: 9px; text-anchor: middle; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 8px 10px; text-align: right; border-bottom: 1px solid var(--line-soft); font-variant-numeric: tabular-nums; }
+    th:first-child, td:first-child { text-align: left; }
+    th { font-size: 12.5px; color: var(--muted); font-weight: 600; }
+    tbody tr:last-child td { border-bottom: 0; }
+    .ok { color: var(--good); } .warn { color: var(--warn); } .bad { color: var(--bad); font-weight: 600; }
+    .scroll { overflow-x: auto; }
+    .rank { display: grid; gap: 6px; }
+    .rank-row { display: grid; grid-template-columns: minmax(120px, 220px) 1fr 40px; gap: 10px; align-items: center; }
+    .rank-row .bar { height: 8px; border-radius: 4px; background: var(--line-soft); overflow: hidden; }
+    .rank-row .bar i { display: block; height: 100%; background: var(--bar); }
+    .rank-row span:last-child { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+    .two { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+    .muted { color: var(--muted); font-size: 12.5px; }
+    #err { color: var(--bad); margin: 10px 0; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>Painel · Cestimo</h1>
+      <p id="updated">Carregando…</p>
+    </header>
+    <div id="err" role="alert"></div>
+
+    <div class="grid" id="cards"></div>
+
+    <section>
+      <h2>Últimos 14 dias</h2>
+      <div class="charts" id="charts"></div>
+    </section>
+
+    <section class="two">
+      <div class="panel">
+        <h2>Mercados</h2>
+        <div class="scroll"><table id="sources"></table></div>
+        <p class="muted">found = achou o item · empty = site respondeu sem item confiável · erro/indisponível = falha na consulta.</p>
+      </div>
+      <div class="panel">
+        <h2>Produtos mais buscados</h2>
+        <div class="rank" id="top"></div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>O que as pessoas fazem</h2>
+      <div class="scroll"><table id="events"></table></div>
+      <p class="muted">Tudo anônimo: só contagens, sem identificar quem fez. Os números sobrevivem a reinícios (gravados em disco).</p>
+    </section>
+  </div>
+  <script src="/admin/admin.js"></script>
+</body>
+</html>

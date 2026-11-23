@@ -132,3 +132,85 @@ describe('produção: segurança, limites e métricas', () => {
     expect(res.json().name).toBe('Cestimo');
   });
 });
+
+describe('números de uso (painel)', () => {
+  const basic = { authorization: `Basic ${Buffer.from('admin:x').toString('base64')}` };
+  const offer = (source: string, priceBRL: number) => ({ source, title: 'Arroz Urbano 5kg', priceBRL });
+  const two: PriceSource[] = [
+    { name: 'A', search: async () => [offer('A', 10)] },
+    { name: 'B', search: async () => [offer('B', 20)] },
+  ];
+  const stats = async (app: ReturnType<typeof buildApp>) => (await app.inject({ method: 'GET', url: '/admin/stats', headers: basic })).json();
+  const event = (app: ReturnType<typeof buildApp>, name: unknown) => app.inject({ method: 'POST', url: '/api/event', payload: { name } as object });
+
+  it('POST /api/event conta cópias e impressões e responde 204', async () => {
+    const app = buildApp({ sources: two, metricsToken: 'x' });
+    expect((await event(app, 'copy_store')).statusCode).toBe(204);
+    await event(app, 'copy_item');
+    await event(app, 'print_item');
+    const s = await stats(app);
+    expect(s.totals).toMatchObject({ copies: 2, prints: 1 });
+    expect(s.events).toMatchObject({ copy_store: 1, copy_item: 1, print_item: 1 });
+  });
+
+  it('evento desconhecido ou sem nome é rejeitado (não vira métrica)', async () => {
+    const app = buildApp({ sources: two, metricsToken: 'x' });
+    expect((await event(app, 'hack<script>')).statusCode).toBe(400);
+    expect((await event(app, undefined)).statusCode).toBe(400);
+    expect((await stats(app)).events).toEqual({});
+  });
+
+  it('totais: comparações, itens, itens encontrados e economia', async () => {
+    const app = buildApp({ sources: two, metricsToken: 'x' });
+    await app.inject({ method: 'POST', url: '/api/compare', payload: { list: 'Arroz Urbano 5kg\nCaviar 100g' } });
+    const t = (await stats(app)).totals;
+    expect(t.compares).toBe(1);
+    expect(t.items).toBe(2);
+    expect(t.itemsFound).toBe(1);
+    expect(t.itemsMissing).toBe(1);
+    expect(t.avgItemsPerList).toBe(2);
+    expect(t.savingsBRL).toBe(5);
+  });
+
+  it('taxa de cópia = cópias / comparações', async () => {
+    const app = buildApp({ sources: two, metricsToken: 'x' });
+    await app.inject({ method: 'POST', url: '/api/compare', payload: { list: 'Arroz Urbano 5kg' } });
+    await app.inject({ method: 'POST', url: '/api/compare', payload: { list: 'Arroz Urbano 5kg' } });
+    await event(app, 'copy_store');
+    expect((await stats(app)).totals.copyRate).toBe(0.5);
+  });
+
+  it('conta visitas da página inicial (não das APIs)', async () => {
+    const app = buildApp({ sources: two, metricsToken: 'x' });
+    app.get('/', () => 'ok');
+    await app.inject({ method: 'GET', url: '/' });
+    await app.inject({ method: 'GET', url: '/api/config' });
+    expect((await stats(app)).totals.pageViews).toBe(1);
+  });
+
+  it('série por dia traz 14 dias com o movimento de hoje', async () => {
+    const app = buildApp({ sources: two, metricsToken: 'x' });
+    await app.inject({ method: 'POST', url: '/api/compare', payload: { list: 'Arroz Urbano 5kg' } });
+    await event(app, 'copy_item');
+    const days = (await stats(app)).days;
+    expect(days).toHaveLength(14);
+    expect(days[13].values).toMatchObject({ compare: 1, items: 1, copy: 1 });
+  });
+
+  it('sem comparações, as taxas são zero (sem divisão por zero)', async () => {
+    const t = (await stats(buildApp({ sources: two, metricsToken: 'x' }))).totals;
+    expect(t).toMatchObject({ compares: 0, copyRate: 0, avgItemsPerList: 0, avgSeconds: 0 });
+  });
+
+  it('o painel /admin exige senha e entrega HTML e script', async () => {
+    const app = buildApp({ sources: two, metricsToken: 'x' });
+    expect((await app.inject({ method: 'GET', url: '/admin' })).statusCode).toBe(401);
+    const page = await app.inject({ method: 'GET', url: '/admin', headers: basic });
+    expect(page.statusCode).toBe(200);
+    expect(page.headers['content-type']).toContain('text/html');
+    const js = await app.inject({ method: 'GET', url: '/admin/admin.js', headers: basic });
+    expect(js.statusCode).toBe(200);
+    expect(js.headers['content-type']).toContain('javascript');
+  });
+});
+

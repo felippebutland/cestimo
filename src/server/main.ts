@@ -1,10 +1,14 @@
 import fastifyStatic from '@fastify/static';
 import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { closeBrowser } from '../sources/browser.js';
 import { buildApp } from './app.js';
 import { createAppMetrics } from './appMetrics.js';
 import { withCache } from './cache.js';
+import { createDailyStats } from './dailyStats.js';
 import { buildSources, readMarketsFile } from './markets.js';
+import { createTopList } from './metrics.js';
+import { createStateFile, startAutosave } from './persistence.js';
 
 const num = (name: string, fallback: number): number => {
   const n = Number(process.env[name]);
@@ -23,6 +27,22 @@ try {
 }
 
 const metrics = createAppMetrics();
+const top = createTopList(500);
+const daily = createDailyStats({ utcOffsetMinutes: Number(process.env.TZ_OFFSET_MIN ?? -180) });
+
+// Números em disco: sobrevivem a reinícios e novas versões (use um volume no Docker).
+const stateFile = createStateFile(join(process.env.DATA_DIR ?? './data', 'stats.json'));
+const saved = stateFile.load() as { metrics?: unknown; top?: unknown; daily?: unknown } | null;
+if (saved) {
+  metrics.restore(saved.metrics);
+  top.restore(saved.top);
+  daily.restore(saved.daily);
+}
+const saveState = (): void => {
+  stateFile.save({ savedAt: new Date().toISOString(), metrics: metrics.snapshot(), top: top.snapshot(), daily: daily.snapshot() });
+};
+const stopAutosave = startAutosave(saveState, num('SAVE_EVERY_SECONDS', 30) * 1000);
+
 const sources = buildSources(markets).map((s) =>
   withCache(s, TEN_MINUTES, Date.now, {
     onHit: (source) => metrics.inc('cache_events_total', { source, event: 'hit' }),
@@ -36,6 +56,8 @@ const app = buildApp({
   name: process.env.APP_NAME || 'Cestimo',
   logger: true,
   metrics,
+  top,
+  daily,
   metricsToken: process.env.METRICS_TOKEN || undefined,
   rateLimit: { max: num('RATE_LIMIT_MAX', 20), windowMs: num('RATE_LIMIT_WINDOW_MIN', 60) * 60 * 1000 },
   maxConcurrent: num('MAX_CONCURRENT', 2),
@@ -44,8 +66,12 @@ const app = buildApp({
 await app.register(fastifyStatic, { root: fileURLToPath(new URL('../../web/', import.meta.url)) });
 
 await app.listen({ port: num('PORT', 3000), host: process.env.HOST ?? '127.0.0.1' });
-if (!process.env.METRICS_TOKEN) app.log.warn('METRICS_TOKEN não definido: /metrics e /admin/stats estão desativados.');
+if (!process.env.METRICS_TOKEN) app.log.warn('METRICS_TOKEN não definido: /admin, /metrics e /admin/stats estão desativados.');
+if (saved) app.log.info('Números anteriores restaurados do disco.');
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
-  process.on(signal, () => void app.close().then(closeBrowser).then(() => process.exit(0)));
+  process.on(signal, () => {
+    stopAutosave();
+    void app.close().then(closeBrowser).then(() => process.exit(0));
+  });
 }
