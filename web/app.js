@@ -1,6 +1,7 @@
 import { formatBRL, formatPct } from './format.js';
 import { JobExpiredError, submitJob, waitForJob } from './jobs.js';
 import { installMode } from './install.js';
+import { sparklinePath, summarize } from './trend.js';
 import { formatDay, parseSaved, snapshot, variations } from './history.js';
 import { parseShareHash, shareUrl, toShareBody } from './share.js';
 import { applyChoice, mergeRecomputed, toRecomputeBody } from './overrides.js';
@@ -104,7 +105,30 @@ function trendLine(v, since) {
   return el('div', { className: `sub trend ${v.direction}`, textContent: text, title: `Menor preço na consulta anterior: ${formatBRL(v.previousBRL)}` });
 }
 
-function comparisonPanel(data, onSwap, baseline, actions) {
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+/** "30 dias: R$ 3,50 a R$ 5,20" com mini-gráfico; nada enquanto houver menos de 2 dias de histórico. */
+function historyLine(points) {
+  const sum = points ? summarize(points) : null;
+  if (!sum) return null;
+  const d = sparklinePath(points, 72, 18);
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 72 18');
+  svg.setAttribute('width', '72');
+  svg.setAttribute('height', '18');
+  svg.setAttribute('aria-hidden', 'true');
+  const path = document.createElementNS(SVG_NS, 'path');
+  path.setAttribute('d', d);
+  path.setAttribute('fill', 'none');
+  path.setAttribute('stroke', 'currentColor');
+  path.setAttribute('stroke-width', '1.5');
+  svg.append(path);
+  const verdict = sum.atMin ? 'No menor preço' : `${formatPct(sum.aboveMinPct)} acima do menor`;
+  return el('div', { className: `sub hist${sum.atMin ? ' low' : ''}`, title: `Menor preço entre os mercados, nos últimos ${sum.days} dias com consulta` },
+    svg, el('span', { textContent: `${formatBRL(sum.minBRL)} a ${formatBRL(sum.maxBRL)} em ${sum.days} dias` }), el('b', { textContent: verdict }));
+}
+
+function comparisonPanel(data, onSwap, baseline, actions, series) {
   const trends = variations(baseline ?? null, data);
   const since = baseline ? formatDay(baseline.at) : '';
   const names = data.products[0]?.sources.map((s) => s.source) ?? [];
@@ -112,7 +136,7 @@ function comparisonPanel(data, onSwap, baseline, actions) {
     el('th', { textContent: 'Média' }), el('th', { textContent: 'Diferença' }));
   const rows = data.products.map((p, pi) => {
     const best = p.stats?.cheapest.source;
-    return el('tr', {}, el('td', { className: 'prod' }, p.query, trendLine(trends[pi], since)),
+    return el('tr', {}, el('td', { className: 'prod' }, p.query, trendLine(trends[pi], since), historyLine(series?.[pi])),
       ...p.sources.map((s) => cell(s, s.source === best, () => onSwap(pi, s.source))),
       el('td', { className: 'cell' }, el('span', { className: 'px', textContent: p.stats ? formatBRL(p.stats.averageBRL) : '—' })),
       el('td', { className: 'cell' }, el('span', { className: 'px', textContent: p.stats ? formatBRL(p.stats.diffBRL) : '—' }),
@@ -246,21 +270,37 @@ const shopState = { mode: 'item', chosen: null };
 let currentData = null;
 
 let baseline = null;
+let historySeries = null; // séries de preço dos últimos dias, na ordem dos produtos
 let sharedView = null; // { createdAt } quando a tela mostra um link compartilhado
 
 function render(data, { fresh = true, list, shared = null } = {}) {
   if (fresh) {
     Object.assign(shopState, { mode: 'item', chosen: null });
     sharedView = shared;
+    historySeries = null;
     baseline = shared ? null : readSaved()?.snapshot ?? null;
     if (list !== undefined) writeSaved({ list, snapshot: snapshot(data) });
   }
   currentData = data;
   $('result').replaceChildren(...[
     sharedView ? sharedBanner(data) : null,
-    comparisonPanel(data, openSwap, baseline, sharedView ? null : shareControls()),
+    comparisonPanel(data, openSwap, baseline, sharedView ? null : shareControls(), historySeries),
     shoppingPanel(data),
   ].filter(Boolean));
+}
+
+/** Busca a tendência dos últimos 30 dias dos produtos e redesenha a tabela com ela. Falha = segue sem tendência. */
+async function loadHistory(data) {
+  try {
+    const res = await fetch('/api/history', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ queries: data.products.map((p) => p.query) }) });
+    if (!res.ok) return;
+    const { series } = await res.json();
+    if (currentData !== data || !Array.isArray(series) || series.length !== data.products.length) return; // a tela já mudou
+    historySeries = series.map((x) => x.points);
+    if (historySeries.some((points) => points.length >= 2)) render(data, { fresh: false });
+  } catch {
+    // sem rede ou servidor ocupado: a comparação continua valendo sem o gráfico
+  }
 }
 
 /* ---------- Compartilhar o resultado ---------- */
@@ -461,6 +501,7 @@ async function followJob(job) {
       onReconnecting: (n) => { reconnecting = n; },
     });
     render(data, { list: job.list });
+    loadHistory(data);
     $('result').scrollIntoView({ behavior: 'smooth', block: 'start' });
   } catch (e) {
     $('status').textContent = e instanceof JobExpiredError

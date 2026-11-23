@@ -253,6 +253,10 @@ Memória aproximada no limite configurado: Prometheus 384 MB, Grafana 384 MB, Lo
 
 > Testado de ponta a ponta com Docker: o Prometheus coleta o app, o Alloy entrega os logs ao Loki, o Grafana carrega as duas fontes de dados e o painel sozinho, e as consultas dos 23 painéis foram validadas. Os gráficos por hora só preenchem depois de alguns minutos de coleta.
 
+### Histórico de preços
+
+A cada consulta, o Cestimo grava o menor preço confiável do dia de cada produto em SQLite (`DATA_DIR/history.db`, um valor por dia, produto e mercado; sem IP nem hora). Na tabela, produtos com 2 ou mais dias de histórico mostram um mini-gráfico, o intervalo de preços e se hoje está no menor preço. Quem tem o cookie de opt-out do administrador não grava histórico. Requer o módulo `node:sqlite` (Node 22.5 ou mais novo; a imagem Docker usa o 24).
+
 ### Alertas (Grafana)
 
 Com o perfil `monitoring` no ar, o Grafana já traz 3 alertas (pasta **Cestimo**, em *Alerting → Alert rules*), criados a partir de `monitoring/grafana/provisioning/alerting/cestimo.yml`:
@@ -307,6 +311,7 @@ Se o servidor está atrás de um roteador, em casa ou sem IP fixo, dá para usar
 | `DATA_DIR` | `./data` | onde gravar os números do painel (no Docker: `/app/data`, volume) |
 | `SAVE_EVERY_SECONDS` | `30` | de quanto em quanto tempo gravar em disco |
 | `SHARE_TTL_DAYS` | `7` | por quantos dias um link de "Compartilhar" continua valendo |
+| `HISTORY_KEEP_DAYS` | `365` | por quantos dias o histórico de preços fica guardado (arquivo `history.db` em `DATA_DIR`) |
 | `TZ_OFFSET_MIN` | `-180` | fuso dos gráficos por dia, em minutos do UTC (-180 = Brasília) |
 | `GRAFANA_PASSWORD` | vazio | senha do Grafana (só no perfil `monitoring`) |
 
