@@ -109,12 +109,19 @@ const priced = (r: SourceResult): Priced[] =>
 export async function compare(
   list: string[],
   sources: PriceSource[],
-  opts: { timeoutMs?: number; observer?: Observer } = {},
+  opts: { timeoutMs?: number; observer?: Observer; onProgress?: (done: number, total: number) => void } = {},
 ): Promise<CompareResult> {
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  let finished = 0;
   const products = await Promise.all(
     list.map(async (query): Promise<ProductResult> => {
       const results = flagOutliers(await Promise.all(sources.map((s) => querySource(query, s, timeoutMs, opts.observer))));
+      finished += 1;
+      try {
+        opts.onProgress?.(finished, list.length);
+      } catch {
+        // acompanhamento nunca pode derrubar a comparação
+      }
       return { query, sources: results, stats: computeStats(results.flatMap(priced)) };
     }),
   );

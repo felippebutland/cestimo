@@ -332,7 +332,13 @@ fixtures/             respostas reais usadas nos testes
 spike/                anotações e scripts da fase de descoberta (descartáveis)
 ```
 
-API: `GET /api/config` (nome, cidade e fontes) e `POST /api/compare` com `{ "list": "Arroz 5kg\nOvos 30un" }`.
+API:
+- `GET /api/config`: nome, cidade e fontes.
+- `POST /api/jobs` com `{ "list": "Arroz 5kg\nOvos 30un" }`: responde **na hora** com `202` e `{ "id", "total" }`. A interface usa este.
+- `GET /api/jobs/:id`: `{ status: "running" | "done" | "error", done, total, result? }`. O resultado fica disponível por 10 minutos (`404` depois disso).
+- `POST /api/compare`: o mesmo, mas numa única conexão que espera o resultado (mantido para scripts simples e testes).
+
+**Por que duas etapas?** Uma comparação leva de 15 a 60 s. Em um celular, qualquer oscilação de rede (trocar de Wi-Fi para 4G, apagar a tela, ir para outro app) derrubava a única conexão e a pessoa via "Load failed", mesmo com o servidor terminando o trabalho. Agora o envio é instantâneo, o servidor trabalha sozinho e a tela só **pergunta pelo andamento**: se a conexão cair, ela volta a perguntar pelo mesmo `id` ("Reconectando…") e, se a página recarregar, retoma a consulta em andamento sem reenviar a lista. As consultas ficam em memória: se o servidor reiniciar no meio, a tela avisa para enviar de novo.
 
 ## Limitações e aviso
 

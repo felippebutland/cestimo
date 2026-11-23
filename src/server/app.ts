@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import { compare, type SourceEvent } from '../domain/compare.js';
@@ -35,6 +36,8 @@ export type AppDeps = {
   maxConcurrent?: number;
   /** true quando o app roda atrás de um proxy (Caddy, Cloudflare…) e o IP real vem do cabeçalho. */
   trustProxy?: boolean;
+  /** Por quanto tempo o resultado de uma consulta fica disponível para ser buscado (padrão: 10 min). */
+  jobTtlMs?: number;
 };
 
 const SECURITY_HEADERS: Record<string, string> = {
@@ -213,35 +216,47 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     return reply.code(204).send();
   });
 
-  app.post('/api/compare', async (req, reply) => {
+  type Payload = {
+    products: Awaited<ReturnType<typeof compare>>['products'];
+    basket: Omit<Awaited<ReturnType<typeof compare>>['basket'], 'totals' | 'coverage'> & {
+      totals: Record<string, number>;
+      coverage: Record<string, number>;
+    };
+  };
+
+  /** Limite por IP, validação da lista e vaga na fila. Devolve null depois de já ter respondido o erro. */
+  const admit = (req: FastifyRequest, reply: FastifyReply): { list: string[]; leave: () => void } | null => {
     if (limiter) {
       const limit = limiter.check(req.ip);
       if (!limit.allowed) {
         const secs = Math.max(1, Math.ceil(limit.retryAfterMs / 1000));
         outcome('rate_limited');
-        return reply.header('retry-after', String(secs)).code(429).send({ error: `Muitas consultas seguidas. Tente de novo em ${secs}s.`, retryAfterSeconds: secs });
+        void reply.header('retry-after', String(secs)).code(429).send({ error: `Muitas consultas seguidas. Tente de novo em ${secs}s.`, retryAfterSeconds: secs });
+        return null;
       }
     }
     const raw = (req.body as { list?: unknown } | null)?.list;
     const list = typeof raw === 'string' ? parseList(raw) : [];
-    if (list.length === 0) {
+    if (list.length === 0 || list.length > MAX_ITEMS) {
       outcome('bad_request');
-      return reply.code(400).send({ error: 'Informe ao menos um produto.' });
-    }
-    if (list.length > MAX_ITEMS) {
-      outcome('bad_request');
-      return reply.code(400).send({ error: `No máximo ${MAX_ITEMS} produtos por vez.` });
+      void reply.code(400).send({ error: list.length === 0 ? 'Informe ao menos um produto.' : `No máximo ${MAX_ITEMS} produtos por vez.` });
+      return null;
     }
     const leave = gate.tryEnter();
     if (!leave) {
       outcome('busy');
-      return reply.header('retry-after', '30').code(503).send({ error: 'Estamos com muitas consultas no momento. Tente de novo em instantes.' });
+      void reply.header('retry-after', '30').code(503).send({ error: 'Estamos com muitas consultas no momento. Tente de novo em instantes.' });
+      return null;
     }
+    return { list, leave };
+  };
+
+  /** Faz a comparação e registra as métricas (quem tem o cookie de opt-out fica fora do uso). */
+  const runCompare = async (list: string[], ignore: boolean, onProgress?: (done: number) => void): Promise<Payload> => {
     const started = Date.now();
-    const ignore = isIgnored(req);
     try {
       if (!ignore) list.forEach((q) => top.record(normalizeQuery(q)));
-      const result = await compare(list, deps.sources, { observer });
+      const result = await compare(list, deps.sources, { observer, onProgress: (done) => onProgress?.(done) });
       const seconds = (Date.now() - started) / 1000;
       if (ignore) {
         outcome('ignored');
@@ -260,16 +275,62 @@ export function buildApp(deps: AppDeps): FastifyInstance {
         app.log.info({ event: 'compare', items: list.length, seconds, queries: list.map(normalizeQuery) });
       }
       const { totals, coverage } = result.basket;
-      return {
-        products: result.products,
-        basket: { ...result.basket, totals: Object.fromEntries(totals), coverage: Object.fromEntries(coverage) },
-      };
+      return { products: result.products, basket: { ...result.basket, totals: Object.fromEntries(totals), coverage: Object.fromEntries(coverage) } };
     } catch (e) {
       outcome('error');
       throw e;
-    } finally {
-      leave();
     }
+  };
+
+  // Endpoint antigo: uma única conexão espera o resultado (mantido por compatibilidade).
+  app.post('/api/compare', async (req, reply) => {
+    const admitted = admit(req, reply);
+    if (!admitted) return reply;
+    try {
+      return await runCompare(admitted.list, isIgnored(req));
+    } finally {
+      admitted.leave();
+    }
+  });
+
+  // Consulta em duas etapas: o POST responde na hora e o resultado fica guardado, então uma queda de
+  // conexão (comum em celular) não perde o trabalho: o navegador volta a perguntar pelo mesmo id.
+  type Job = { status: 'running' | 'done' | 'error'; done: number; total: number; result?: Payload; error?: string; finishedAt?: number };
+  const jobs = new Map<string, Job>();
+  const jobTtlMs = deps.jobTtlMs ?? 10 * 60 * 1000;
+  const MAX_JOBS = 500;
+  const pollLimiter = createRateLimiter({ max: 2400, windowMs: 60 * 60 * 1000 });
+
+  const sweepJobs = (): void => {
+    const now = Date.now();
+    for (const [id, job] of jobs) if (job.finishedAt !== undefined && now - job.finishedAt > jobTtlMs) jobs.delete(id);
+  };
+  setInterval(sweepJobs, 60_000).unref();
+
+  app.post('/api/jobs', async (req, reply) => {
+    sweepJobs();
+    if (jobs.size >= MAX_JOBS) {
+      outcome('busy');
+      return reply.header('retry-after', '30').code(503).send({ error: 'Estamos com muitas consultas no momento. Tente de novo em instantes.' });
+    }
+    const admitted = admit(req, reply);
+    if (!admitted) return reply;
+    const id = randomUUID();
+    const job: Job = { status: 'running', done: 0, total: admitted.list.length };
+    jobs.set(id, job);
+    runCompare(admitted.list, isIgnored(req), (done) => { job.done = done; })
+      .then((result) => { job.status = 'done'; job.done = job.total; job.result = result; })
+      .catch(() => { job.status = 'error'; job.error = 'Não foi possível consultar os mercados agora. Tente de novo.'; })
+      .finally(() => { job.finishedAt = Date.now(); admitted.leave(); });
+    return reply.code(202).send({ id, total: job.total });
+  });
+
+  app.get('/api/jobs/:id', async (req, reply) => {
+    if (!pollLimiter.check(req.ip).allowed) return reply.code(429).send({ error: 'Muitas verificações seguidas.' });
+    sweepJobs();
+    const job = jobs.get((req.params as { id: string }).id);
+    if (!job) return reply.code(404).send({ error: 'Consulta não encontrada ou expirada. Envie a lista de novo.' });
+    return reply.header('cache-control', 'no-store').send(job);
   });
   return app;
 }

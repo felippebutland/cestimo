@@ -378,3 +378,126 @@ describe('números de uso (painel)', () => {
     });
   });
 });
+
+describe('consulta em duas etapas (/api/jobs): resiste a queda de conexão', () => {
+  const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  const basic = { authorization: `Basic ${Buffer.from('admin:x').toString('base64')}` };
+  const submit = (app: ReturnType<typeof buildApp>, list = 'Arroz 5kg', headers: Record<string, string> = {}) =>
+    app.inject({ method: 'POST', url: '/api/jobs', payload: { list } as object, headers });
+  const poll = (app: ReturnType<typeof buildApp>, id: string) => app.inject({ method: 'GET', url: `/api/jobs/${id}` });
+  const untilDone = async (app: ReturnType<typeof buildApp>, id: string) => {
+    for (let i = 0; i < 100; i++) {
+      const body = (await poll(app, id)).json();
+      if (body.status !== 'running') return body;
+      await wait(10);
+    }
+    throw new Error('job não terminou');
+  };
+
+  it('POST responde na hora com 202 e o id; o resultado vem pelo acompanhamento', async () => {
+    const app = buildApp({ sources: [fake] });
+    const res = await submit(app, 'Arroz 5kg\nOvos 30un');
+    expect(res.statusCode).toBe(202);
+    const { id, total } = res.json();
+    expect(typeof id).toBe('string');
+    expect(id.length).toBeGreaterThan(20);
+    expect(total).toBe(2);
+    const done = await untilDone(app, id);
+    expect(done.status).toBe('done');
+    expect(done).toMatchObject({ done: 2, total: 2 });
+    expect(done.result.products).toHaveLength(2);
+    expect(done.result.basket.coverage).toEqual({ fake: 1 });
+  });
+
+  it('o resultado fica disponível para ser buscado de novo (retomada após queda)', async () => {
+    const app = buildApp({ sources: [fake] });
+    const { id } = (await submit(app)).json();
+    await untilDone(app, id);
+    const again = (await poll(app, id)).json();
+    expect(again.status).toBe('done');
+    expect(again.result.products[0].query).toBe('Arroz 5kg');
+  });
+
+  it('mostra o progresso enquanto roda', async () => {
+    const releases: Array<() => void> = [];
+    const slow: PriceSource = { name: 'slow', search: (q) => new Promise((r) => { releases.push(() => r(q === 'a' ? [] : [])); }) };
+    const app = buildApp({ sources: [slow] });
+    const { id } = (await submit(app, 'a\nb')).json();
+    await wait(30);
+    const running = (await poll(app, id)).json();
+    expect(running).toMatchObject({ status: 'running', done: 0, total: 2 });
+    expect(running.result).toBeUndefined();
+    releases.splice(0).forEach((release) => release());
+    expect((await untilDone(app, id)).status).toBe('done');
+  });
+
+  it('valida a lista como o endpoint antigo', async () => {
+    const app = buildApp({ sources: [fake] });
+    expect((await submit(app, '  ')).statusCode).toBe(400);
+    expect((await submit(app, Array.from({ length: 21 }, (_, i) => `p${i}`).join('\n'))).statusCode).toBe(400);
+  });
+
+  it('id desconhecido responde 404', async () => {
+    expect((await poll(buildApp({ sources: [fake] }), 'nao-existe')).statusCode).toBe(404);
+  });
+
+  it('o resultado expira depois do prazo', async () => {
+    const app = buildApp({ sources: [fake], jobTtlMs: 40 });
+    const { id } = (await submit(app)).json();
+    await untilDone(app, id);
+    await wait(80);
+    expect((await poll(app, id)).statusCode).toBe(404);
+  });
+
+  it('aplica o limite por IP no envio', async () => {
+    const app = buildApp({ sources: [fake], rateLimit: { max: 1, windowMs: 60_000 } });
+    expect((await submit(app)).statusCode).toBe(202);
+    const blocked = await submit(app);
+    expect(blocked.statusCode).toBe(429);
+    expect(blocked.headers['retry-after']).toBeDefined();
+  });
+
+  it('recusa com 503 quando já há consultas demais rodando e libera a vaga ao terminar', async () => {
+    const releases: Array<() => void> = [];
+    const slow: PriceSource = { name: 'slow', search: () => new Promise((r) => { releases.push(() => r([])); }) };
+    const app = buildApp({ sources: [slow], maxConcurrent: 1 });
+    const first = (await submit(app)).json();
+    await wait(20);
+    const busy = await submit(app);
+    expect(busy.statusCode).toBe(503);
+    expect(busy.headers['retry-after']).toBeDefined();
+    releases.splice(0).forEach((release) => release());
+    await untilDone(app, first.id);
+    const third = await submit(app);
+    expect(third.statusCode).toBe(202);
+    await wait(20);
+    releases.splice(0).forEach((release) => release());
+    await untilDone(app, third.json().id);
+  });
+
+  it('conta nas métricas como as comparações normais', async () => {
+    const app = buildApp({ sources: [fake], metricsToken: 'x' });
+    await untilDone(app, (await submit(app, 'Arroz 5kg\nOvos 30un')).json().id);
+    const s = (await app.inject({ method: 'GET', url: '/admin/stats', headers: basic })).json();
+    expect(s.requests).toMatchObject({ ok: 1 });
+    expect(s.totals).toMatchObject({ compares: 1, items: 2 });
+    expect(s.top.map((t: { term: string }) => t.term).sort()).toEqual(['arroz 5kg', 'ovos 30un']);
+  });
+
+  it('quem está com o cookie de opt-out roda normalmente, mas fica fora do uso', async () => {
+    const app = buildApp({ sources: [fake], metricsToken: 'x' });
+    const { id } = (await submit(app, 'Arroz 5kg', { cookie: 'cestimo_ignorar=1' })).json();
+    expect((await untilDone(app, id)).status).toBe('done');
+    const s = (await app.inject({ method: 'GET', url: '/admin/stats', headers: basic })).json();
+    expect(s.requests).toMatchObject({ ignored: 1 });
+    expect(s.totals.compares).toBe(0);
+    expect(s.top).toEqual([]);
+  });
+
+  it('o endpoint antigo /api/compare continua funcionando (compatibilidade)', async () => {
+    const res = await buildApp({ sources: [fake] }).inject({ method: 'POST', url: '/api/compare', payload: { list: 'Arroz 5kg' } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().products).toHaveLength(1);
+  });
+});
+

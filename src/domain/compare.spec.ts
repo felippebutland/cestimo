@@ -156,4 +156,20 @@ describe('compare', () => {
     });
     expect(r.products[0]!.sources[0]!.status).toBe('ok');
   });
+
+  it('avisa o progresso a cada produto concluído', async () => {
+    const calls: Array<[number, number]> = [];
+    await compare(['Arroz Urbano 5kg', 'Feijão Preto 1kg', 'Leite Integral 1L'], [src('a', async () => [offer('a', 'Arroz Urbano 5kg', 20)])], {
+      onProgress: (done, total) => calls.push([done, total]),
+    });
+    expect(calls).toEqual([[1, 3], [2, 3], [3, 3]]);
+  });
+
+  it('onProgress que lança não derruba a comparação', async () => {
+    const r = await compare(['Arroz Urbano 5kg'], [src('a', async () => [offer('a', 'Arroz Urbano 5kg', 20)])], {
+      onProgress: () => { throw new Error('boom'); },
+    });
+    expect(r.products).toHaveLength(1);
+  });
 });
+

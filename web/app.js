@@ -1,4 +1,5 @@
 import { formatBRL, formatPct } from './format.js';
+import { JobExpiredError, submitJob, waitForJob } from './jobs.js';
 import { buildShoppingList, buildSingleStoreList, toText } from './shoppingList.js';
 
 const $ = (id) => document.getElementById(id);
@@ -205,17 +206,24 @@ function render(data) {
 
 /* ---------- Carregando ---------- */
 let loadingTimer = null;
+let progress = { done: 0, total: 0 };
+let reconnecting = 0;
 
-function startLoading(items) {
+function startLoading(total, startedAt = Date.now()) {
+  progress = { done: 0, total };
+  reconnecting = 0;
   const names = SOURCES.length ? SOURCES : ['mercados'];
   const spans = names.map((n) => el('span', { textContent: n }));
   $('chips').replaceChildren(...spans.flatMap((s, i) => (i ? [document.createTextNode(' · '), s] : [s])));
   $('loading').classList.add('on');
-  const t0 = Date.now();
   let step = 0;
   const tick = () => {
     spans.forEach((s, i) => s.classList.toggle('on', i === step % spans.length));
-    $('load-sub').textContent = `${items} ${items === 1 ? 'produto' : 'produtos'} · ${Math.round((Date.now() - t0) / 1000)} s`;
+    const secs = Math.round((Date.now() - startedAt) / 1000);
+    $('load-title').textContent = reconnecting ? 'Reconectando…' : 'Consultando os mercados…';
+    $('load-sub').textContent = reconnecting
+      ? 'A conexão oscilou. Sua consulta continua no servidor e será retomada.'
+      : `${progress.done} de ${progress.total} ${progress.total === 1 ? 'produto' : 'produtos'} · ${secs} s`;
     step++;
   };
   tick();
@@ -227,31 +235,99 @@ function stopLoading() {
   $('loading').classList.remove('on');
 }
 
-/* ---------- Ação ---------- */
-async function compareNow() {
+/* ---------- Consulta em duas etapas (aguenta queda de conexão) ---------- */
+const JOB_KEY = 'cestimo.job';
+const JOB_MAX_AGE_MS = 9 * 60 * 1000;
+
+function saveJob(job) {
+  try { sessionStorage.setItem(JOB_KEY, JSON.stringify(job)); } catch { /* armazenamento indisponível */ }
+}
+function clearJob() {
+  try { sessionStorage.removeItem(JOB_KEY); } catch { /* idem */ }
+}
+function readSavedJob() {
+  try {
+    const job = JSON.parse(sessionStorage.getItem(JOB_KEY) ?? 'null');
+    return job && Date.now() - job.startedAt < JOB_MAX_AGE_MS ? job : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Espera `ms`, mas acorda antes se o celular voltar ao app ou a internet voltar (timers param em segundo plano). */
+const wakeableSleep = (ms) =>
+  new Promise((resolve) => {
+    const finish = () => {
+      clearTimeout(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('online', finish);
+      resolve();
+    };
+    const onVisible = () => { if (document.visibilityState === 'visible') finish(); };
+    const timer = setTimeout(finish, ms);
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('online', finish);
+  });
+
+let busy = false;
+
+function setBusy(on, label) {
+  busy = on;
   const button = $('go');
-  if (button.disabled) return;
-  button.disabled = true;
-  button.textContent = 'Comparando…';
+  button.disabled = on;
+  button.textContent = on ? label : 'Comparar preços';
+}
+
+async function followJob(job) {
+  setBusy(true, 'Comparando…');
   $('result').replaceChildren();
   $('status').textContent = '';
-  startLoading($('list').value.split('\n').filter((l) => l.trim()).length || 1);
+  startLoading(job.total, job.startedAt);
   try {
-    const res = await fetch('/api/compare', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ list: $('list').value }) });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
+    const data = await waitForJob(job.id, {
+      sleep: wakeableSleep,
+      onProgress: (done, total) => { progress = { done, total }; },
+      onReconnecting: (n) => { reconnecting = n; },
+    });
     render(data);
     $('result').scrollIntoView({ behavior: 'smooth', block: 'start' });
   } catch (e) {
-    $('status').textContent = `Não foi possível comparar: ${e.message}`;
+    $('status').textContent = e instanceof JobExpiredError
+      ? 'A consulta expirou ou o servidor foi reiniciado. Envie a lista de novo.'
+      : `Não foi possível comparar: ${e.message}`;
   } finally {
+    clearJob();
     stopLoading();
-    button.disabled = false;
-    button.textContent = 'Comparar preços';
+    setBusy(false);
   }
+}
+
+async function compareNow() {
+  if (busy) return;
+  const list = $('list').value;
+  setBusy(true, 'Enviando…');
+  $('status').textContent = '';
+  let job;
+  try {
+    const { id, total } = await submitJob(list);
+    job = { id, total, startedAt: Date.now(), list };
+    saveJob(job);
+  } catch (e) {
+    $('status').textContent = `Não foi possível comparar: ${e.message}`;
+    setBusy(false);
+    return;
+  }
+  await followJob(job);
 }
 
 $('go').addEventListener('click', compareNow);
 $('list').addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) compareNow();
 });
+
+// Se a página foi recarregada no meio de uma consulta (o Safari faz isso ao voltar de outro app), retoma de onde parou.
+const savedJob = readSavedJob();
+if (savedJob) {
+  $('list').value = savedJob.list;
+  followJob(savedJob);
+}
