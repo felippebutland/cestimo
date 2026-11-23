@@ -42,8 +42,9 @@ if (saved) {
 const saveState = (): void => {
   stateFile.save({ savedAt: new Date().toISOString(), metrics: metrics.snapshot(), top: top.snapshot(), daily: daily.snapshot() });
 };
-const shares = createShareStore({ ttlMs: num('SHARE_TTL_DAYS', 7) * 24 * 60 * 60 * 1000 });
 const sharesFile = createStateFile(join(process.env.DATA_DIR ?? './data', 'shares.json'));
+// Grava na hora a cada link criado: quem acabou de compartilhar não pode perder o link num reinício.
+const shares = createShareStore({ ttlMs: num('SHARE_TTL_DAYS', 7) * 24 * 60 * 60 * 1000, onPut: () => { sharesFile.save(shares.snapshot()); } });
 shares.restore(sharesFile.load());
 const saveShares = (): void => { sharesFile.save(shares.snapshot()); };
 const stopStatsAutosave = startAutosave(saveState, num('SAVE_EVERY_SECONDS', 30) * 1000);

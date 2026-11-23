@@ -7,7 +7,7 @@ type Entry = { createdAt: number; result: unknown };
 export type SharedResult = { result: unknown; createdAt: number; expiresAt: number };
 
 /** Resultados congelados atrás de um id aleatório. Vencem sozinhos e o total é limitado (descarta os mais antigos). */
-export function createShareStore(opts: { ttlMs?: number; maxEntries?: number; now?: () => number } = {}) {
+export function createShareStore(opts: { ttlMs?: number; maxEntries?: number; now?: () => number; onPut?: () => void } = {}) {
   const ttlMs = opts.ttlMs ?? 7 * DAY_MS;
   const maxEntries = opts.maxEntries ?? 2000;
   const now = opts.now ?? Date.now;
@@ -29,6 +29,11 @@ export function createShareStore(opts: { ttlMs?: number; maxEntries?: number; no
       const id = randomBytes(12).toString('base64url');
       const createdAt = now();
       entries.set(id, { createdAt, result });
+      try {
+        opts.onPut?.();
+      } catch {
+        // gravar em disco nunca pode impedir o link de ser criado
+      }
       return { id, expiresAt: createdAt + ttlMs };
     },
     get(id: string): SharedResult | null {

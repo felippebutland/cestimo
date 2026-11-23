@@ -66,4 +66,16 @@ describe('createShareStore', () => {
     expect(() => { s.restore(null); s.restore('x'); s.restore({ entries: [['a']] }); }).not.toThrow();
     expect(s.size()).toBe(0);
   });
+  it('avisa quando um link é criado, para quem quiser gravar em disco na hora', () => {
+    let calls = 0;
+    const s = createShareStore({ onPut: () => { calls++; } });
+    s.put({});
+    s.put({});
+    expect(calls).toBe(2);
+  });
+  it('falha em quem escuta não impede o link de ser criado', () => {
+    const s = createShareStore({ onPut: () => { throw new Error('disco cheio'); } });
+    const { id } = s.put({ a: 1 });
+    expect(s.get(id)).not.toBeNull();
+  });
 });

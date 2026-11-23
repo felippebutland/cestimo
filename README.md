@@ -294,6 +294,7 @@ Se o servidor está atrás de um roteador, em casa ou sem IP fixo, dá para usar
 | `TRUST_PROXY` | desligado | `1` quando há proxy na frente (Caddy/Cloudflare), para ler o IP real |
 | `DATA_DIR` | `./data` | onde gravar os números do painel (no Docker: `/app/data`, volume) |
 | `SAVE_EVERY_SECONDS` | `30` | de quanto em quanto tempo gravar em disco |
+| `SHARE_TTL_DAYS` | `7` | por quantos dias um link de "Compartilhar" continua valendo |
 | `TZ_OFFSET_MIN` | `-180` | fuso dos gráficos por dia, em minutos do UTC (-180 = Brasília) |
 | `GRAFANA_PASSWORD` | vazio | senha do Grafana (só no perfil `monitoring`) |
 
