@@ -201,6 +201,8 @@ Abra `https://seu-dominio/admin` no navegador (ele pede a senha) e veja, atualiz
 - **% de itens encontrados** e **saúde de cada mercado** (achou / sem item / erro / indisponível e tempo médio).
 - **Gráficos dos últimos 14 dias** e o ranking dos **produtos mais buscados**.
 
+**Ignorar os seus próprios acessos:** ao abrir `/admin` pela primeira vez em um navegador, ele é marcado (um cookie de preferência, só nesse navegador) e **seus acessos deixam de contar**: visitas, comparações, cópias, busca nos "mais buscados" e economia. Um botão no topo do painel liga e desliga. Funciona por navegador, então abra o `/admin` uma vez em cada aparelho ou navegador que você usa (janelas anônimas contam como outro navegador). As comparações feitas por você continuam funcionando normalmente, só ficam fora das estatísticas (aparecem como `ignored` em `requests`). Não é guardado nenhum dado seu, nem IP nem impressão digital.
+
 Os números ficam gravados em disco (`DATA_DIR`, padrão `./data`; no Docker, o volume `cestimo_data`) a cada 30 s e ao encerrar, então **sobrevivem a reinícios e a atualizações**. Só não dá para saber *quem* copiou, de propósito: o app conta ações, não pessoas.
 
 ### Endpoints

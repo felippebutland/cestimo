@@ -55,6 +55,11 @@
     .rank-row.wide { grid-template-columns: minmax(80px, 140px) 1fr 74px; }
     .two { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
     .muted { color: var(--muted); font-size: 12.5px; }
+    .ignore { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 14px; margin-bottom: 16px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); font-size: 13.5px; }
+    .ignore:empty { display: none; }
+    .ignore.on { border-left: 3px solid var(--good); }
+    .ignore button { border: 1px solid var(--line); background: var(--panel); color: var(--text); padding: 6px 12px; border-radius: 6px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+    .ignore button:hover { border-color: var(--muted); }
     #err { color: var(--bad); margin: 10px 0; }
   </style>
 </head>
@@ -65,6 +70,7 @@
       <p id="updated">Carregando…</p>
     </header>
     <div id="err" role="alert"></div>
+    <div id="ignore" class="ignore"></div>
 
     <div class="grid" id="cards"></div>
 

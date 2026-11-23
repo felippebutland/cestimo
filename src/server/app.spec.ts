@@ -280,5 +280,101 @@ describe('números de uso (painel)', () => {
       expect(clients).toEqual({ device: [], os: [], browser: [], bots: 0 });
     });
   });
-});
 
+  describe('ignorar as próprias visitas (cookie de opt-out do administrador)', () => {
+    const IGNORE = { cookie: 'cestimo_ignorar=1' };
+    const mk = () => {
+      const app = buildApp({ sources: two, metricsToken: 'x' });
+      app.get('/', () => 'ok');
+      return app;
+    };
+
+    it('abrir /admin autenticado marca o navegador como "ignorar" (cookie HttpOnly)', async () => {
+      const res = await mk().inject({ method: 'GET', url: '/admin', headers: basic });
+      const cookie = String(res.headers['set-cookie']);
+      expect(cookie).toContain('cestimo_ignorar=1');
+      expect(cookie).toContain('HttpOnly');
+      expect(cookie).toContain('Path=/');
+      expect(cookie).toMatch(/Max-Age=\d+/);
+    });
+
+    it('quem escolheu voltar a ser contado não é marcado de novo', async () => {
+      const res = await mk().inject({ method: 'GET', url: '/admin', headers: { ...basic, cookie: 'cestimo_ignorar=0' } });
+      expect(res.headers['set-cookie']).toBeUndefined();
+    });
+
+    it('/admin sem senha não define cookie nenhum', async () => {
+      const res = await mk().inject({ method: 'GET', url: '/admin' });
+      expect(res.statusCode).toBe(401);
+      expect(res.headers['set-cookie']).toBeUndefined();
+    });
+
+    it('cookie com Secure quando o acesso é por HTTPS atrás de proxy', async () => {
+      const app = buildApp({ sources: two, metricsToken: 'x', trustProxy: true });
+      const res = await app.inject({ method: 'GET', url: '/admin', headers: { ...basic, 'x-forwarded-proto': 'https' } });
+      expect(String(res.headers['set-cookie'])).toContain('Secure');
+    });
+
+    const postEvent = (app: ReturnType<typeof buildApp>, name: string, headers: Record<string, string> = {}) =>
+      app.inject({ method: 'POST', url: '/api/event', payload: { name } as object, headers });
+    const compareList = (app: ReturnType<typeof buildApp>, headers: Record<string, string> = {}) =>
+      app.inject({ method: 'POST', url: '/api/compare', payload: { list: 'Arroz Urbano 5kg' } as object, headers });
+
+    it('visita de quem é ignorado não conta', async () => {
+      const app = mk();
+      await app.inject({ method: 'GET', url: '/', headers: IGNORE });
+      const s = await stats(app);
+      expect(s.totals.pageViews).toBe(0);
+      expect(s.clients.device).toEqual([]);
+    });
+
+    it('ações de quem é ignorado respondem 204, mas não contam', async () => {
+      const app = mk();
+      expect((await postEvent(app, 'copy_store', IGNORE)).statusCode).toBe(204);
+      const s = await stats(app);
+      expect(s.events).toEqual({});
+      expect(s.totals.copies).toBe(0);
+    });
+
+    it('comparação de quem é ignorado funciona normalmente, mas fica fora do uso', async () => {
+      const app = mk();
+      const res = await compareList(app, IGNORE);
+      expect(res.statusCode).toBe(200);
+      expect(res.json().products).toHaveLength(1);
+      const s = await stats(app);
+      expect(s.totals).toMatchObject({ compares: 0, items: 0, itemsFound: 0, savingsBRL: 0 });
+      expect(s.requests).toMatchObject({ ignored: 1 });
+      expect(s.top).toEqual([]);
+      expect(s.days[13].values).toEqual({});
+    });
+
+    it('cookie "0" (quem voltou a ser contado) conta normalmente', async () => {
+      const app = mk();
+      await compareList(app, { cookie: 'cestimo_ignorar=0' });
+      expect((await stats(app)).totals.compares).toBe(1);
+    });
+
+    it('reconhece o cookie entre outros', async () => {
+      const app = mk();
+      await compareList(app, { cookie: 'a=b; cestimo_ignorar=1; c=d' });
+      expect((await stats(app)).totals.compares).toBe(0);
+    });
+
+    it('POST /admin/ignore liga e desliga (exige senha)', async () => {
+      const app = mk();
+      expect((await app.inject({ method: 'POST', url: '/admin/ignore', payload: { on: true } as object })).statusCode).toBe(401);
+      const off = await app.inject({ method: 'POST', url: '/admin/ignore', payload: { on: false } as object, headers: basic });
+      expect(off.statusCode).toBe(204);
+      expect(String(off.headers['set-cookie'])).toContain('cestimo_ignorar=0');
+      const on = await app.inject({ method: 'POST', url: '/admin/ignore', payload: { on: true } as object, headers: basic });
+      expect(String(on.headers['set-cookie'])).toContain('cestimo_ignorar=1');
+      expect((await app.inject({ method: 'POST', url: '/admin/ignore', payload: { on: 'sim' } as object, headers: basic })).statusCode).toBe(400);
+    });
+
+    it('/admin/stats informa se este navegador está sendo ignorado', async () => {
+      const app = mk();
+      expect((await app.inject({ method: 'GET', url: '/admin/stats', headers: { ...basic, cookie: 'cestimo_ignorar=1' } })).json().ignoredNow).toBe(true);
+      expect((await stats(app)).ignoredNow).toBe(false);
+    });
+  });
+});

@@ -133,6 +133,22 @@ function renderEvents(events) {
   $('events').replaceChildren(el('tbody', {}, ...rows));
 }
 
+function renderIgnore(ignored) {
+  const box = $('ignore');
+  box.className = `ignore${ignored ? ' on' : ''}`;
+  const button = el('button', { type: 'button', textContent: ignored ? 'Voltar a contar meus acessos' : 'Ignorar meus acessos' });
+  button.addEventListener('click', async () => {
+    button.disabled = true;
+    await fetch('/admin/ignore', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on: !ignored }) });
+    load();
+  });
+  box.replaceChildren(
+    el('span', { textContent: ignored
+      ? 'Os acessos feitos neste navegador (visitas, comparações e cliques) não entram nas contagens.'
+      : 'Os acessos feitos neste navegador estão sendo contados, inclusive os seus.' }),
+    button);
+}
+
 async function load() {
   try {
     const res = await fetch('/admin/stats', { cache: 'no-store' });
@@ -142,6 +158,7 @@ async function load() {
     renderCharts(d.days);
     renderSources(d.sources);
     renderTop(d.top);
+    renderIgnore(d.ignoredNow);
     renderClients(d.clients, d.totals.pageViews);
     renderEvents(d.events);
     $('err').textContent = '';

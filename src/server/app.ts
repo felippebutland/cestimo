@@ -54,6 +54,19 @@ const PRIVATE_LOGGER = {
   },
 };
 
+const IGNORE_COOKIE = 'cestimo_ignorar';
+const ONE_YEAR_SECONDS = 365 * 24 * 60 * 60;
+
+/** Valor do cookie de opt-out do administrador: '1' = ignorar, '0' = contar de propósito, undefined = não definido. */
+const ignoreCookie = (req: FastifyRequest): '0' | '1' | undefined =>
+  (new RegExp(`(?:^|;\\s*)${IGNORE_COOKIE}=([01])(?:;|$)`).exec(req.headers.cookie ?? '')?.[1] as '0' | '1' | undefined);
+const isIgnored = (req: FastifyRequest): boolean => ignoreCookie(req) === '1';
+
+const setIgnoreCookie = (req: FastifyRequest, reply: FastifyReply, on: boolean): void => {
+  const secure = req.protocol === 'https' ? '; Secure' : '';
+  reply.header('set-cookie', `${IGNORE_COOKIE}=${on ? 1 : 0}; Path=/; Max-Age=${ONE_YEAR_SECONDS}; HttpOnly; SameSite=Lax${secure}`);
+};
+
 const resultOf = (e: SourceEvent): string => (e.status !== 'ok' ? e.status : e.matched ? 'found' : 'empty');
 
 export function buildApp(deps: AppDeps): FastifyInstance {
@@ -76,6 +89,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   app.addHook('onResponse', async (req, reply) => {
     const path = req.url.split('?')[0];
     if (req.method === 'GET' && (path === '/' || path === '/index.html') && (reply.statusCode === 200 || reply.statusCode === 304)) {
+      if (isIgnored(req)) return;
       const client = parseClient(req.headers['user-agent']);
       if (client.bot) {
         metrics.inc('bot_visits_total');
@@ -122,7 +136,18 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     return [...totals].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
   };
 
-  app.get('/admin', { preHandler: guard }, (_req, reply) => reply.header('content-type', 'text/html; charset=utf-8').send(adminHtml));
+  // Quem abre o painel é o administrador: este navegador passa a ser ignorado nas contagens (pode desligar no painel).
+  app.get('/admin', { preHandler: guard }, (req, reply) => {
+    if (ignoreCookie(req) === undefined) setIgnoreCookie(req, reply, true);
+    return reply.header('content-type', 'text/html; charset=utf-8').send(adminHtml);
+  });
+
+  app.post('/admin/ignore', { preHandler: guard }, (req, reply) => {
+    const on = (req.body as { on?: unknown } | null)?.on;
+    if (typeof on !== 'boolean') return reply.code(400).send({ error: '"on" deve ser true ou false' });
+    setIgnoreCookie(req, reply, on);
+    return reply.code(204).send();
+  });
   app.get('/admin/admin.js', { preHandler: guard }, (_req, reply) => reply.header('content-type', 'application/javascript; charset=utf-8').send(adminJs));
 
   app.get('/admin/stats', { preHandler: guard }, (req, reply) => {
@@ -141,6 +166,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     const compares = requests.ok ?? 0;
     const copies = (events.copy_item ?? 0) + (events.copy_store ?? 0);
     return {
+      ignoredNow: isIgnored(req),
       uptimeSeconds: Math.round((Date.now() - startedAt) / 1000),
       active: gate.active(),
       requests,
@@ -181,6 +207,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     if (!eventLimiter.check(req.ip).allowed) return reply.code(429).send();
     const name = (req.body as { name?: unknown } | null)?.name;
     if (!isUiEvent(name)) return reply.code(400).send({ error: 'evento inválido' });
+    if (isIgnored(req)) return reply.code(204).send();
     metrics.inc('ui_events_total', { event: name });
     daily.add(name.startsWith('copy') ? 'copy' : name.startsWith('print') ? 'print' : name);
     return reply.code(204).send();
@@ -211,22 +238,27 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       return reply.header('retry-after', '30').code(503).send({ error: 'Estamos com muitas consultas no momento. Tente de novo em instantes.' });
     }
     const started = Date.now();
+    const ignore = isIgnored(req);
     try {
-      list.forEach((q) => top.record(normalizeQuery(q)));
+      if (!ignore) list.forEach((q) => top.record(normalizeQuery(q)));
       const result = await compare(list, deps.sources, { observer });
       const seconds = (Date.now() - started) / 1000;
-      metrics.observe('compare_items', list.length);
-      metrics.observe('compare_duration_seconds', seconds);
-      const found = result.products.filter((p) => p.stats !== null).length;
-      const savings = result.products.reduce((t, p) => t + (p.stats ? p.stats.averageBRL - p.stats.cheapest.priceBRL : 0), 0);
-      metrics.inc('list_items_total', { result: 'found' }, found);
-      metrics.inc('list_items_total', { result: 'missing' }, list.length - found);
-      metrics.inc('savings_brl_total', {}, savings);
-      daily.add('compare');
-      daily.add('items', list.length);
-      daily.add('savings', Math.round(savings * 100) / 100);
-      outcome('ok');
-      app.log.info({ event: 'compare', items: list.length, seconds, queries: list.map(normalizeQuery) });
+      if (ignore) {
+        outcome('ignored');
+      } else {
+        metrics.observe('compare_items', list.length);
+        metrics.observe('compare_duration_seconds', seconds);
+        const found = result.products.filter((p) => p.stats !== null).length;
+        const savings = result.products.reduce((t, p) => t + (p.stats ? p.stats.averageBRL - p.stats.cheapest.priceBRL : 0), 0);
+        metrics.inc('list_items_total', { result: 'found' }, found);
+        metrics.inc('list_items_total', { result: 'missing' }, list.length - found);
+        metrics.inc('savings_brl_total', {}, savings);
+        daily.add('compare');
+        daily.add('items', list.length);
+        daily.add('savings', Math.round(savings * 100) / 100);
+        outcome('ok');
+        app.log.info({ event: 'compare', items: list.length, seconds, queries: list.map(normalizeQuery) });
+      }
       const { totals, coverage } = result.basket;
       return {
         products: result.products,
