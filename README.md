@@ -234,7 +234,7 @@ docker compose -f docker-compose.prod.yml --profile monitoring up -d
 
 O Grafana abre em `https://seu-dominio/grafana/` (usuário `admin`) já com o painel **Cestimo · visão geral** (visitas, comparações, cópias, economia, falhas e tempo por mercado, cache, recusas). Os dois serviços usam ~400 MB cada no limite; pense nisso ao escolher o servidor.
 
-> Esse perfil foi validado só na sintaxe (compose, YAML, JSON e Caddyfile). Não foi executado de ponta a ponta. Se algo falhar ao subir, `docker compose ... logs prometheus grafana` mostra o motivo.
+> Testado de ponta a ponta com Docker: o Prometheus coleta o app (`/metrics`, com a senha do `.env`), o Grafana carrega a fonte de dados e o painel sozinhos, e as 14 consultas do painel foram validadas no Prometheus. Os gráficos por hora só preenchem depois de alguns minutos de coleta.
 
 ## Publicar como serviço público
 
@@ -259,6 +259,23 @@ O Caddy emite o certificado HTTPS sozinho. O app não fica exposto: só o Caddy 
 - [ ] Alarme simples: um monitor externo (ex.: UptimeRobot) em `/healthz`.
 
 **Operação do dia a dia:** `docker compose -f docker-compose.prod.yml logs -f cestimo` (logs), `... restart cestimo` (após editar `config/markets.json`) e `git pull && docker compose -f docker-compose.prod.yml up -d --build` (atualizar).
+
+### Rodando a stack completa no seu computador
+
+Com Docker (6 GB de memória para a VM é confortável), a mesma stack de produção sobe local, com HTTPS de teste:
+
+```bash
+cp .env.example .env     # DOMAIN=localhost; gere METRICS_TOKEN e GRAFANA_PASSWORD (openssl rand -base64 24)
+docker compose -f docker-compose.prod.yml --profile monitoring up -d --build
+```
+
+| O quê | Endereço |
+|---|---|
+| App | `https://localhost/` |
+| Painel de números | `https://localhost/admin` (usuário `admin`, senha = `METRICS_TOKEN`) |
+| Grafana | `https://localhost/grafana/` (usuário `admin`, senha = `GRAFANA_PASSWORD`) |
+
+O navegador avisa que o certificado de `localhost` não é confiável (é um certificado de teste do Caddy). Em um domínio real, o Caddy emite um certificado válido sozinho.
 
 ## Variáveis de ambiente
 

@@ -387,7 +387,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (source) (increase(source_searches_total{result=~\"erro|indisponivel\"}[1h])) / sum by (source) (increase(source_searches_total[1h]))",
+          "expr": "(sum by (source) (increase(source_searches_total{result=~\"erro|indisponivel\"}[1h])) or sum by (source) (increase(source_searches_total[1h])) * 0) / sum by (source) (increase(source_searches_total[1h]))",
           "legendFormat": "{{source}}",
           "datasource": {
             "type": "prometheus",
@@ -469,7 +469,7 @@
     {
       "id": 13,
       "type": "timeseries",
-      "title": "Recusas: limite por IP e servidor ocupado (por hora)",
+      "title": "Recusas: limite por IP, servidor ocupado e erros (por hora)",
       "datasource": {
         "type": "prometheus",
         "uid": "prom"
@@ -483,12 +483,30 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (outcome) (increase(compare_requests_total{outcome=~\"rate_limited|busy|bad_request|error\"}[1h]))",
-          "legendFormat": "{{outcome}}",
           "datasource": {
             "type": "prometheus",
             "uid": "prom"
-          }
+          },
+          "legendFormat": "limite por IP",
+          "expr": "sum(increase(compare_requests_total{outcome=\"rate_limited\"}[1h])) or vector(0)"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prom"
+          },
+          "legendFormat": "servidor ocupado",
+          "expr": "sum(increase(compare_requests_total{outcome=\"busy\"}[1h])) or vector(0)"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prom"
+          },
+          "legendFormat": "erro interno",
+          "expr": "sum(increase(compare_requests_total{outcome=\"error\"}[1h])) or vector(0)"
         }
       ],
       "fieldConfig": {
