@@ -626,3 +626,51 @@ describe('links compartilhados (resultado congelado)', () => {
   });
 });
 
+describe('histórico de preços', () => {
+  const compare = (app: ReturnType<typeof buildApp>, list: string, headers: Record<string, string> = {}) =>
+    app.inject({ method: 'POST', url: '/api/compare', payload: { list }, headers });
+  const history = (app: ReturnType<typeof buildApp>, payload: unknown) =>
+    app.inject({ method: 'POST', url: '/api/history', payload: payload as object });
+
+  it('cada comparação grava o menor preço do dia e a série volta pela API', async () => {
+    const app = buildApp({ sources: [fake] });
+    await compare(app, 'Arroz 5kg\nFeijão 1kg');
+    const res = await history(app, { queries: ['arroz 5KG', 'Sal'] });
+    expect(res.statusCode).toBe(200);
+    const { series } = res.json();
+    expect(series[0].query).toBe('arroz 5KG');
+    expect(series[0].points).toHaveLength(1);
+    expect(series[0].points[0]).toMatchObject({ cheapestBRL: 21.79, cheapestSource: 'fake', sources: 1 });
+    expect(series[1].points).toEqual([]);
+  });
+  it('itens incertos não entram no histórico', async () => {
+    const odd: PriceSource = { name: 'odd', search: async () => [{ source: 'odd', title: 'Arroz Parboilizado Orgânico Integral 5kg', priceBRL: 99 }] };
+    const app = buildApp({ sources: [odd] });
+    await compare(app, 'Arroz 5kg');
+    expect((await history(app, { queries: ['Arroz 5kg'] })).json().series[0].points).toEqual([]);
+  });
+  it('quem tem o cookie de opt-out não grava histórico', async () => {
+    const app = buildApp({ sources: [fake] });
+    await compare(app, 'Arroz 5kg', { cookie: 'cestimo_ignorar=1' });
+    expect((await history(app, { queries: ['Arroz 5kg'] })).json().series[0].points).toEqual([]);
+  });
+  it.each([
+    ['sem lista', {}],
+    ['lista vazia', { queries: [] }],
+    ['mais de 20', { queries: Array.from({ length: 21 }, (_, i) => `p${i}`) }],
+    ['item que não é texto', { queries: [5] }],
+    ['texto enorme', { queries: ['x'.repeat(200)] }],
+    ['dias inválidos', { queries: ['a'], days: 'muitos' }],
+  ])('rejeita: %s', async (_n, payload) => {
+    expect((await history(buildApp({ sources: [fake] }), payload)).statusCode).toBe(400);
+  });
+  it('limita os dias pedidos a 90', async () => {
+    expect((await history(buildApp({ sources: [fake] }), { queries: ['a'], days: 500 })).statusCode).toBe(200);
+  });
+  it('tem limite de uso por IP', async () => {
+    const app = buildApp({ sources: [fake], historyRateLimit: { max: 1, windowMs: 60_000 } });
+    expect((await history(app, { queries: ['a'] })).statusCode).toBe(200);
+    expect((await history(app, { queries: ['a'] })).statusCode).toBe(429);
+  });
+});
+

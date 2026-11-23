@@ -10,6 +10,7 @@ import { basicAuthOk, createGate, createRateLimiter } from './limits.js';
 import { createDailyStats, type DailyStats } from './dailyStats.js';
 import { createTopList, normalizeQuery, type Metrics } from './metrics.js';
 import { parseRecomputeBody } from './recomputeInput.js';
+import { createHistoryStore, dayKey, type HistoryStore } from './history.js';
 import { createShareStore, type ShareStore } from './shares.js';
 
 export const MAX_ITEMS = 20;
@@ -34,6 +35,12 @@ export type AppDeps = {
   daily?: DailyStats;
   /** Máximo de comparações por IP na janela. Sem isto, não há limite. */
   rateLimit?: { max: number; windowMs: number };
+  /** Histórico de preços (SQLite); sem ele, vale só em memória. */
+  history?: HistoryStore;
+  /** Fuso para virar o dia do histórico (padrão: -180, Brasília). */
+  utcOffsetMinutes?: number;
+  /** Limite de consultas ao histórico por IP (padrão: 1200 por hora). */
+  historyRateLimit?: { max: number; windowMs: number };
   /** Onde ficam os resultados dos links compartilhados; passe o seu para poder gravá-los em disco. */
   shares?: ShareStore;
   /** Por quanto tempo um link compartilhado vale (padrão: 7 dias). */
@@ -92,6 +99,8 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   const adminJs = readFileSync(new URL('admin.js', ADMIN_DIR), 'utf8');
   const gate = createGate(deps.maxConcurrent ?? Number.POSITIVE_INFINITY);
   const limiter = deps.rateLimit ? createRateLimiter(deps.rateLimit) : null;
+  const history = deps.history ?? createHistoryStore({ path: ':memory:', utcOffsetMinutes: deps.utcOffsetMinutes });
+  const historyLimiter = createRateLimiter(deps.historyRateLimit ?? { max: 1200, windowMs: 60 * 60 * 1000 });
   const startedAt = Date.now();
   const outcome = (name: string): void => metrics.inc('compare_requests_total', { outcome: name });
 
@@ -261,6 +270,19 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     return { list, leave };
   };
 
+  /** Guarda o menor preço confiável do dia de cada produto. Falha de disco nunca derruba a comparação. */
+  const recordHistory = (products: Awaited<ReturnType<typeof compare>>['products']): void => {
+    const day = dayKey(Date.now(), deps.utcOffsetMinutes ?? -180);
+    for (const p of products) {
+      const rows = p.sources.flatMap((s) => (s.match && !s.match.uncertain ? [{ source: s.source, priceBRL: s.match.equivalentBRL }] : []));
+      try {
+        history.record(day, p.query, rows);
+      } catch (e) {
+        app.log.warn({ event: 'history_error', message: e instanceof Error ? e.message : String(e) });
+      }
+    }
+  };
+
   /** Faz a comparação e registra as métricas (quem tem o cookie de opt-out fica fora do uso). */
   const runCompare = async (list: string[], ignore: boolean, onProgress?: (done: number) => void): Promise<Payload> => {
     const started = Date.now();
@@ -278,6 +300,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
         metrics.inc('list_items_total', { result: 'found' }, found);
         metrics.inc('list_items_total', { result: 'missing' }, list.length - found);
         metrics.inc('savings_brl_total', {}, savings);
+        recordHistory(result.products);
         daily.add('compare');
         daily.add('items', list.length);
         daily.add('savings', Math.round(savings * 100) / 100);
@@ -360,6 +383,20 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     if (!found) return reply.code(404).send({ error: 'Link não encontrado ou expirado. Peça para gerar outro.' });
     if (!isIgnored(req)) metrics.inc('ui_events_total', { event: 'share_open' });
     return reply.header('cache-control', 'no-store').send(found);
+  });
+
+  // Série de preços dos últimos dias de cada produto da lista (para mostrar a tendência).
+  app.post('/api/history', async (req, reply) => {
+    if (!historyLimiter.check(req.ip).allowed) return reply.code(429).send({ error: 'Muitas consultas seguidas.' });
+    const body = req.body as { queries?: unknown; days?: unknown } | null;
+    const queries = body?.queries;
+    const days = body?.days === undefined ? 30 : body.days;
+    if (!Array.isArray(queries) || queries.length === 0 || queries.length > MAX_ITEMS || !queries.every((q) => typeof q === 'string' && q.trim().length > 0 && q.length <= 120)) {
+      return reply.code(400).send({ error: 'Envie de 1 a 20 produtos (texto de até 120 caracteres).' });
+    }
+    if (typeof days !== 'number' || !Number.isInteger(days) || days < 1) return reply.code(400).send({ error: 'Número de dias inválido.' });
+    const list = queries as string[];
+    return reply.header('cache-control', 'no-store').send({ series: list.map((query) => ({ query, points: history.series(query, Math.min(days, 90)) })) });
   });
 
   // Recalcula médias e cesta com os itens que a pessoa escolheu. Não consulta mercados nem guarda nada.

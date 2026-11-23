@@ -9,6 +9,7 @@ import { createDailyStats } from './dailyStats.js';
 import { buildSources, readMarketsFile } from './markets.js';
 import { createTopList } from './metrics.js';
 import { createStateFile, startAutosave } from './persistence.js';
+import { createHistoryStore } from './history.js';
 import { createShareStore } from './shares.js';
 
 const num = (name: string, fallback: number): number => {
@@ -51,6 +52,11 @@ const stopStatsAutosave = startAutosave(saveState, num('SAVE_EVERY_SECONDS', 30)
 const stopSharesAutosave = startAutosave(saveShares, num('SAVE_EVERY_SECONDS', 30) * 1000);
 const stopAutosave = (): void => { stopStatsAutosave(); stopSharesAutosave(); };
 
+const utcOffsetMinutes = Number(process.env.TZ_OFFSET_MIN ?? -180);
+const history = createHistoryStore({ path: join(process.env.DATA_DIR ?? './data', 'history.db'), utcOffsetMinutes, keepDays: num('HISTORY_KEEP_DAYS', 365) });
+history.purge();
+setInterval(() => { try { history.purge(); } catch { /* limpeza é só higiene */ } }, 24 * 60 * 60 * 1000).unref();
+
 const sources = buildSources(markets).map((s) =>
   withCache(s, TEN_MINUTES, Date.now, {
     onHit: (source) => metrics.inc('cache_events_total', { source, event: 'hit' }),
@@ -67,6 +73,8 @@ const app = buildApp({
   top,
   daily,
   shares,
+  history,
+  utcOffsetMinutes,
   metricsToken: process.env.METRICS_TOKEN || undefined,
   rateLimit: { max: num('RATE_LIMIT_MAX', 20), windowMs: num('RATE_LIMIT_WINDOW_MIN', 60) * 60 * 1000 },
   maxConcurrent: num('MAX_CONCURRENT', 2),
@@ -82,6 +90,7 @@ if (saved) app.log.info('Números anteriores restaurados do disco.');
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.on(signal, () => {
     stopAutosave();
+    try { history.close(); } catch { /* já fechado */ }
     void app.close().then(closeBrowser).then(() => process.exit(0));
   });
 }
