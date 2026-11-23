@@ -33,4 +33,5 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:'+process.env.PORT+'/api/config').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
-CMD ["npx", "tsx", "src/server/main.ts"]
+# node direto (sem npx): o SIGTERM do `docker stop` chega ao app, que grava os números em disco antes de sair.
+CMD ["node", "--import", "tsx", "src/server/main.ts"]

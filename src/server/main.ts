@@ -90,7 +90,9 @@ if (saved) app.log.info('Números anteriores restaurados do disco.');
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.on(signal, () => {
     stopAutosave();
-    try { history.close(); } catch { /* já fechado */ }
-    void app.close().then(closeBrowser).then(() => process.exit(0));
+    void app.close().then(closeBrowser).then(() => {
+      try { history.close(); } catch { /* já fechado */ }
+      process.exit(0);
+    });
   });
 }
