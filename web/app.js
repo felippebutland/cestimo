@@ -1,5 +1,6 @@
 import { formatBRL, formatPct } from './format.js';
 import { JobExpiredError, submitJob, waitForJob } from './jobs.js';
+import { formatDay, parseSaved, snapshot, variations } from './history.js';
 import { applyChoice, mergeRecomputed, toRecomputeBody } from './overrides.js';
 import { buildShoppingList, buildSingleStoreList, toText } from './shoppingList.js';
 
@@ -19,6 +20,14 @@ function track(name) {
   }
 }
 
+const SAVED_KEY = 'cestimo:ultima';
+const readSaved = () => {
+  try { return parseSaved(localStorage.getItem(SAVED_KEY)); } catch { return null; }
+};
+const writeSaved = (value) => {
+  try { localStorage.setItem(SAVED_KEY, JSON.stringify(value)); } catch { /* armazenamento indisponível: segue sem memória */ }
+};
+
 let SOURCES = [];
 const EXAMPLES = ['Arroz Tio João 5kg', 'Feijão preto 1kg', 'Leite integral 1L', 'Ovos 30un', 'Café 500g'];
 
@@ -34,6 +43,19 @@ fetch('/api/config')
     }
   })
   .catch(() => {});
+
+/* ---------- Última lista (só neste navegador) ---------- */
+const lastSaved = readSaved();
+if (lastSaved?.list.trim() && !$('list').value.trim()) {
+  $('list').value = lastSaved.list;
+  const when = lastSaved.snapshot ? ` de ${formatDay(lastSaved.snapshot.at)}` : '';
+  $('list-note').textContent = `Lista da sua última consulta${when}, guardada só neste aparelho. `;
+  $('list-note').append(el('button', { type: 'button', className: 'swap', textContent: 'Limpar', onclick: () => {
+    $('list').value = '';
+    $('list-note').textContent = '';
+    writeSaved({ list: '' });
+  } }));
+}
 
 /* ---------- Exemplos ---------- */
 for (const ex of EXAMPLES) {
@@ -73,13 +95,22 @@ function cell(s, isBest, onSwap) {
   return td;
 }
 
-function comparisonPanel(data, onSwap) {
+function trendLine(v, since) {
+  if (!v) return null;
+  const text = v.direction === 'same' ? `Sem mudança desde ${since}`
+    : `${v.direction === 'up' ? '▲' : '▼'} ${formatBRL(Math.abs(v.deltaBRL))} (${formatPct(v.pct)}) desde ${since}`;
+  return el('div', { className: `sub trend ${v.direction}`, textContent: text, title: `Menor preço na consulta anterior: ${formatBRL(v.previousBRL)}` });
+}
+
+function comparisonPanel(data, onSwap, baseline) {
+  const trends = variations(baseline ?? null, data);
+  const since = baseline ? formatDay(baseline.at) : '';
   const names = data.products[0]?.sources.map((s) => s.source) ?? [];
   const head = el('tr', {}, el('th', { className: 'prod', textContent: 'Produto' }), ...names.map((n) => el('th', { textContent: n })),
     el('th', { textContent: 'Média' }), el('th', { textContent: 'Diferença' }));
   const rows = data.products.map((p, pi) => {
     const best = p.stats?.cheapest.source;
-    return el('tr', {}, el('td', { className: 'prod', textContent: p.query }),
+    return el('tr', {}, el('td', { className: 'prod' }, p.query, trendLine(trends[pi], since)),
       ...p.sources.map((s) => cell(s, s.source === best, () => onSwap(pi, s.source))),
       el('td', { className: 'cell' }, el('span', { className: 'px', textContent: p.stats ? formatBRL(p.stats.averageBRL) : '—' })),
       el('td', { className: 'cell' }, el('span', { className: 'px', textContent: p.stats ? formatBRL(p.stats.diffBRL) : '—' }),
@@ -212,10 +243,16 @@ function shoppingPanel(data) {
 const shopState = { mode: 'item', chosen: null };
 let currentData = null;
 
-function render(data, { fresh = true } = {}) {
-  if (fresh) Object.assign(shopState, { mode: 'item', chosen: null });
+let baseline = null;
+
+function render(data, { fresh = true, list } = {}) {
+  if (fresh) {
+    Object.assign(shopState, { mode: 'item', chosen: null });
+    baseline = readSaved()?.snapshot ?? null;
+    if (list !== undefined) writeSaved({ list, snapshot: snapshot(data) });
+  }
   currentData = data;
-  $('result').replaceChildren(...[comparisonPanel(data, openSwap), shoppingPanel(data)].filter(Boolean));
+  $('result').replaceChildren(...[comparisonPanel(data, openSwap, baseline), shoppingPanel(data)].filter(Boolean));
 }
 
 /* ---------- Trocar o item escolhido ---------- */
@@ -353,7 +390,7 @@ async function followJob(job) {
       onProgress: (done, total) => { progress = { done, total }; },
       onReconnecting: (n) => { reconnecting = n; },
     });
-    render(data);
+    render(data, { list: job.list });
     $('result').scrollIntoView({ behavior: 'smooth', block: 'start' });
   } catch (e) {
     $('status').textContent = e instanceof JobExpiredError

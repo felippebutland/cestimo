@@ -112,6 +112,9 @@
     .flag { font-size: 12px; font-weight: 600; color: var(--warn); }
     .flag.bad { color: var(--bad); }
     .none { color: var(--muted); font-size: 13px; }
+    .trend { white-space: normal; }
+    .trend.up { color: var(--bad); }
+    .trend.down { color: var(--good); }
     .flag.chosen { color: var(--good); }
     .swap { margin-top: 4px; padding: 0; border: 0; background: none; color: var(--muted); font: inherit; font-size: 12px; text-decoration: underline; cursor: pointer; }
     .swap:hover { color: var(--text); }
@@ -164,6 +167,7 @@
         <div class="panel-b">
           <label class="lbl" for="list">Lista de compras <span class="hint">· um produto por linha, com o tamanho (ex.: Ovos 30un, Arroz 5kg)</span></label>
           <textarea id="list" placeholder="Arroz Tio João 5kg&#10;Feijão preto 1kg&#10;Leite integral 1L&#10;Ovos 30un"></textarea>
+          <p class="hint" id="list-note"></p>
           <p class="examples" id="examples">Exemplos:</p>
           <div class="actions">
             <button id="go" class="btn primary" type="button">Comparar preços</button>
