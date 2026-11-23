@@ -18,6 +18,9 @@ const EVENT_LABELS = {
   tab_store: 'Abriu "um mercado só"',
   pick_store: 'Trocou de mercado no seletor',
   swap_match: 'Trocou o item escolhido',
+  pwa_open: 'Abriu o app instalado (PWA)',
+  pwa_install: 'Instalou o app',
+  install_click: 'Tocou em "Instalar app"',
   example: 'Usou um exemplo',
 };
 

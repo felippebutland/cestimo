@@ -196,6 +196,7 @@ Abra `https://seu-dominio/admin` no navegador (ele pede a senha) e veja, atualiz
 
 - **Visitas, comparações, itens buscados, itens por lista, tempo médio.**
 - **Listas copiadas** e a **taxa de cópia** (cópias ÷ comparações), **impressões**, quantas vezes trocaram de modo, escolheram um mercado ou usaram um exemplo.
+- **App instalado (PWA):** quantas vezes o app foi **aberto como app** (uma vez por sessão), quantas **instalações** aconteceram e quantos tocaram em "Instalar app". São aberturas, não pessoas distintas, e a desinstalação não é detectável.
 - **Economia estimada:** soma, por produto, de *preço médio − preço mais barato*, ou seja, quanto as pessoas deixam de gastar escolhendo o mercado mais barato.
 - **Quem acessa:** tipo de aparelho (celular, tablet, computador), sistema (Android, iOS, Windows, macOS…) e navegador (Chrome, Safari, Edge…), **só como categoria genérica e contagem**. O texto completo do navegador (`User-Agent`), versões e IP **não são guardados**. Robôs (monitores de uptime, buscadores, scripts) são contados à parte e ficam fora das visitas.
 - **% de itens encontrados** e **saúde de cada mercado** (achou / sem item / erro / indisponível e tempo médio).

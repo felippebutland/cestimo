@@ -16,7 +16,7 @@ import { createShareStore, type ShareStore } from './shares.js';
 export const MAX_ITEMS = 20;
 
 /** Ações da interface que viram contagem (lista fechada: nada que o usuário digite entra aqui). */
-export const UI_EVENTS = ['copy_item', 'copy_store', 'print_item', 'print_store', 'tab_item', 'tab_store', 'pick_store', 'example', 'swap_match'] as const;
+export const UI_EVENTS = ['copy_item', 'copy_store', 'print_item', 'print_store', 'tab_item', 'tab_store', 'pick_store', 'example', 'swap_match', 'pwa_open', 'pwa_install', 'install_click'] as const;
 const isUiEvent = (v: unknown): v is (typeof UI_EVENTS)[number] => typeof v === 'string' && (UI_EVENTS as readonly string[]).includes(v);
 
 const ADMIN_DIR = new URL('./admin/', import.meta.url);

@@ -1,6 +1,6 @@
 import { formatBRL, formatPct } from './format.js';
 import { JobExpiredError, submitJob, waitForJob } from './jobs.js';
-import { installMode } from './install.js';
+import { installMode, isStandalone, pwaOpenOncePerSession } from './install.js';
 import { sparklinePath, summarize } from './trend.js';
 import { formatDay, parseSaved, snapshot, variations } from './history.js';
 import { parseShareHash, shareUrl, toShareBody } from './share.js';
@@ -569,8 +569,9 @@ window.addEventListener('beforeinstallprompt', (e) => {
   installPrompt = e;
   refreshInstall();
 });
-window.addEventListener('appinstalled', () => { installPrompt = null; refreshInstall(); });
+window.addEventListener('appinstalled', () => { track('pwa_install'); installPrompt = null; refreshInstall(); });
 $('install').addEventListener('click', async () => {
+  track('install_click');
   if ($('install').dataset.mode === 'prompt' && installPrompt) {
     const prompt = installPrompt;
     installPrompt = null;
@@ -589,4 +590,9 @@ $('install').addEventListener('click', async () => {
   dialog.showModal();
 });
 refreshInstall();
+
+// Abriu como app instalado? Conta uma vez por sessão (só o nome do evento, nada da pessoa).
+let sessionStore = { getItem: () => null, setItem: () => {} };
+try { sessionStore = sessionStorage; } catch { /* sem armazenamento */ }
+if (pwaOpenOncePerSession(isStandalone({ displayModeStandalone: matchMedia('(display-mode: standalone)').matches, navigatorStandalone: navigator.standalone }), sessionStore)) track('pwa_open');
 
