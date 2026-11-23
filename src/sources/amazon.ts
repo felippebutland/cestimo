@@ -12,7 +12,7 @@ export function parseAmazonItems(items: AmazonItem[], source: string): Offer[] {
     if (!i.title || !m) return [];
     const priceBRL = Number(m[1]!.replace(/\./g, '').replace(',', '.'));
     if (!Number.isFinite(priceBRL) || priceBRL <= 0) return [];
-    return [{ source, title: i.title, priceBRL, url: i.href ? `${ORIGIN}${i.href}` : undefined }];
+    return [{ source, title: i.title, priceBRL }];
   });
 }
 

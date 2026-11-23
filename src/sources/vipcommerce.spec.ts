@@ -22,9 +22,9 @@ describe('parseVipProducts', () => {
     ]);
     expect(parseVipProducts(json, 'P', 'https://x')).toEqual([]);
   });
-  it('monta a url do produto a partir do link', () => {
+  it('não expõe link do produto (o endereço da loja não abre a página)', () => {
     const json = wrap([{ descricao: 'A', preco: '1.50', disponivel: true, link: 'arroz-a' }]);
-    expect(parseVipProducts(json, 'P', 'https://x')[0]!.url).toBe('https://x/produto/arroz-a');
+    expect(parseVipProducts(json, 'P', 'https://x')[0]).not.toHaveProperty('url');
   });
   it('payload inesperado retorna lista vazia', () => {
     expect(parseVipProducts(null, 'P', 'https://x')).toEqual([]);

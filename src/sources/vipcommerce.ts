@@ -20,8 +20,7 @@ export function parseVipProducts(payload: unknown, source: string, origin: strin
     const offerPrice = p.em_oferta === true ? toPrice(p.oferta?.preco_oferta) : Number.NaN;
     const priceBRL = Number.isFinite(offerPrice) && offerPrice > 0 ? offerPrice : toPrice(p.preco);
     if (!Number.isFinite(priceBRL) || priceBRL <= 0) return [];
-    const url = typeof p.link === 'string' ? `${origin}/produto/${p.link}` : undefined;
-    return [{ source, title: p.descricao, priceBRL, url }];
+    return [{ source, title: p.descricao, priceBRL }];
   });
 }
 

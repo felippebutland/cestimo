@@ -17,7 +17,6 @@ export type Match = {
   uncertain: boolean;
   /** A pessoa escolheu este item em vez do sugerido: vale mesmo que a nota seja baixa. */
   chosenByUser?: boolean;
-  url?: string;
 };
 
 export type SourceResult = {
@@ -69,7 +68,6 @@ function buildMatch(query: string, offer: Offer, score: number, sizeAdjusted: bo
     unit: found ? unitLabel(found.dim) : undefined,
     score,
     uncertain: score < CERTAIN_THRESHOLD,
-    url: offer.url,
   };
 }
 

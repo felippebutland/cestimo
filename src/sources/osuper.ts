@@ -20,8 +20,7 @@ function toOffer(hit: Hit, source: string, origin?: string): Offer | null {
   if (!Number.isFinite(price) || price <= 0) return null;
   const hasContent = typeof hit.content === 'number' && typeof hit.contentUnit === 'string';
   const title = !extractQuantity(hit.name) && hasContent ? `${hit.name} ${hit.content}${hit.contentUnit}` : hit.name;
-  const url = origin && typeof hit.slug === 'string' ? `${origin}/produto/${hit.slug}` : undefined;
-  return { source, title, priceBRL: price, url };
+  return { source, title, priceBRL: price };
 }
 
 export function parseOsuperHits(json: unknown, source: string, origin?: string): Offer[] {

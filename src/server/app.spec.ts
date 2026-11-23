@@ -565,7 +565,7 @@ describe('links compartilhados (resultado congelado)', () => {
   });
   const row = (source: string, match?: ReturnType<typeof m>) => ({ source, status: 'ok', ...(match ? { match } : {}) });
   const body = (extra: Record<string, unknown> = {}) => ({
-    products: [{ query: 'Arroz 5kg', sources: [row('A', m(10, { url: 'https://a.com/x', unitPriceBRL: 2, unit: 'kg' })), row('B', m(20))] }],
+    products: [{ query: 'Arroz 5kg', sources: [row('A', m(10, { unitPriceBRL: 2, unit: 'kg' })), row('B', m(20))] }],
     ...extra,
   });
   const share = (app: ReturnType<typeof buildApp>, payload: unknown) => app.inject({ method: 'POST', url: '/api/share', payload: payload as object });
@@ -581,7 +581,6 @@ describe('links compartilhados (resultado congelado)', () => {
     expect(got.statusCode).toBe(200);
     const { result } = got.json();
     expect(result.products[0].stats.cheapest).toEqual({ source: 'A', priceBRL: 10 });
-    expect(result.products[0].sources[0].match.url).toBe('https://a.com/x');
     expect(result.basket.totals).toEqual({ A: 10, B: 20 });
   });
   it('link desconhecido responde 404', async () => {
@@ -593,9 +592,9 @@ describe('links compartilhados (resultado congelado)', () => {
     await new Promise((r) => setTimeout(r, 5));
     expect((await app.inject({ method: 'GET', url: `/api/share/${id}` })).statusCode).toBe(404);
   });
-  it('dados inválidos ou link perigoso respondem 400 e nada é guardado', async () => {
+  it('dados inválidos respondem 400 e nada é guardado', async () => {
     const app = buildApp({ sources: [fake] });
-    const evil = { products: [{ query: 'a', sources: [row('A', m(10, { url: 'javascript:alert(1)' }))] }] };
+    const evil = { products: [{ query: 'a', sources: [row('A', m(-5))] }] };
     expect((await share(app, evil)).statusCode).toBe(400);
     expect((await share(app, { products: [] })).statusCode).toBe(400);
   });

@@ -3,7 +3,7 @@ import { parseShareHash, shareUrl, toShareBody } from './share.js';
 
 const match = {
   title: 'Arroz', priceBRL: 10, equivalentBRL: 10, sizeAdjusted: false, score: 1, uncertain: false,
-  unitPriceBRL: 2, unit: 'kg', url: 'https://a.com/x', chosenByUser: true, lixo: 1,
+  unitPriceBRL: 2, unit: 'kg', chosenByUser: true, lixo: 1,
 };
 const data = {
   products: [{
@@ -23,7 +23,7 @@ describe('toShareBody', () => {
     expect(body.products[0]!.query).toBe('Arroz 5kg');
     expect(body.products[0]!.sources[0]).toEqual({
       source: 'A', status: 'ok',
-      match: { title: 'Arroz', priceBRL: 10, equivalentBRL: 10, sizeAdjusted: false, score: 1, uncertain: false, unitPriceBRL: 2, unit: 'kg', url: 'https://a.com/x', chosenByUser: true },
+      match: { title: 'Arroz', priceBRL: 10, equivalentBRL: 10, sizeAdjusted: false, score: 1, uncertain: false, unitPriceBRL: 2, unit: 'kg', chosenByUser: true },
     });
     expect(body.products[0]!.sources[1]).toEqual({ source: 'B', status: 'erro' });
     expect(Object.keys(body.products[0]!)).toEqual(['query', 'sources']);

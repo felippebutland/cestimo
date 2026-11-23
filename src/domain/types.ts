@@ -1,4 +1,4 @@
-export type Offer = { source: string; title: string; priceBRL: number; url?: string };
+export type Offer = { source: string; title: string; priceBRL: number };
 export type SourceStatus = 'ok' | 'erro' | 'indisponivel';
 export interface PriceSource {
   readonly name: string;

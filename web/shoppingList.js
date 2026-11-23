@@ -1,7 +1,7 @@
 import { formatBRL } from './format.js';
 
 /**
- * @typedef {{ query: string, title: string, priceBRL: number, sizeAdjusted: boolean, url?: string }} ListItem
+ * @typedef {{ query: string, title: string, priceBRL: number, sizeAdjusted: boolean }} ListItem
  * @typedef {{ source: string, items: ListItem[], subtotalBRL: number }} Store
  * @typedef {{ stores: Store[], missing: string[], totalBRL: number }} ShoppingList
  * @typedef {{ source: string, totalBRL: number, covered: number }} RankRow
@@ -29,7 +29,7 @@ export function buildShoppingList(data) {
       missing.push(p.query);
       continue;
     }
-    const item = { query: p.query, title: m.title, priceBRL: m.priceBRL, sizeAdjusted: m.sizeAdjusted, url: m.url };
+    const item = { query: p.query, title: m.title, priceBRL: m.priceBRL, sizeAdjusted: m.sizeAdjusted };
     groups.set(cheapest, [...(groups.get(cheapest) ?? []), item]);
   }
   const stores = [...groups]
@@ -83,7 +83,7 @@ export function buildSingleStoreList(data, chosen) {
   const pick = ordered.find((r) => r.source === chosen) ?? recommended;
   const items = findable.flatMap((p) => {
     const m = pick.matches.get(p.query);
-    return m ? [{ query: p.query, title: m.title, priceBRL: m.priceBRL, sizeAdjusted: m.sizeAdjusted, url: m.url }] : [];
+    return m ? [{ query: p.query, title: m.title, priceBRL: m.priceBRL, sizeAdjusted: m.sizeAdjusted }] : [];
   });
   const taken = new Set(items.map((i) => i.query));
   return {

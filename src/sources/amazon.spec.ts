@@ -6,7 +6,7 @@ import { BlockedError } from '../domain/types.js';
 describe('parseAmazonItems', () => {
   it('converte "R$ 34,99" em número e mantém o título', () => {
     const offers = parseAmazonItems([{ title: 'Arroz Branco Tio João - 5Kg', price: 'R$ 34,99', href: '/dp/B0X' }], 'Amazon');
-    expect(offers).toEqual([{ source: 'Amazon', title: 'Arroz Branco Tio João - 5Kg', priceBRL: 34.99, url: 'https://www.amazon.com.br/dp/B0X' }]);
+    expect(offers).toEqual([{ source: 'Amazon', title: 'Arroz Branco Tio João - 5Kg', priceBRL: 34.99 }]);
   });
   it('aceita separador de milhar com espaço não separável', () => {
     expect(parseAmazonItems([{ title: 'TV', price: 'R$ 1.299,90' }], 'A')[0]!.priceBRL).toBe(1299.9);

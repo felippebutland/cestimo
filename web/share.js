@@ -1,6 +1,6 @@
 /** Link compartilhado: o que enviar ao servidor e como montar/ler o endereço (`#r=<id>`). */
 
-const FIELDS = ['title', 'priceBRL', 'equivalentBRL', 'sizeAdjusted', 'score', 'uncertain', 'unitPriceBRL', 'unit', 'url', 'chosenByUser'];
+const FIELDS = ['title', 'priceBRL', 'equivalentBRL', 'sizeAdjusted', 'score', 'uncertain', 'unitPriceBRL', 'unit', 'chosenByUser'];
 const HASH_FORMAT = /^#r=([A-Za-z0-9_-]{12,64})$/;
 
 const pickMatch = (m) => Object.fromEntries(FIELDS.filter((k) => m[k] !== undefined).map((k) => [k, m[k]]));

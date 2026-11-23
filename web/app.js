@@ -88,8 +88,7 @@ function cell(s, isBest, onSwap) {
     return td;
   }
   const m = s.match;
-  const title = m.url ? el('a', { href: m.url, target: '_blank', rel: 'noopener', textContent: m.title }) : m.title;
-  td.append(el('div', { className: 'px', textContent: formatBRL(m.priceBRL) }), el('div', { className: 'sub', title: m.title }, title));
+  td.append(el('div', { className: 'px', textContent: formatBRL(m.priceBRL) }), el('div', { className: 'sub', title: m.title, textContent: m.title }));
   const extra = [m.unitPriceBRL != null ? `${formatBRL(m.unitPriceBRL)}/${m.unit}` : null, m.sizeAdjusted ? `≈ ${formatBRL(m.equivalentBRL)} no tamanho pedido` : null].filter(Boolean);
   if (extra.length) td.append(el('div', { className: 'sub', textContent: extra.join(' · ') }));
   if (m.chosenByUser) td.append(el('div', { className: 'flag chosen', textContent: 'Escolhido por você' }));

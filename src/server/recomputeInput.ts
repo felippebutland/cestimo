@@ -8,7 +8,6 @@ const MAX_NAME = 60;
 const STATUSES: readonly SourceStatus[] = ['ok', 'erro', 'indisponivel'];
 
 const MAX_QUERY = 120;
-const MAX_URL = 500;
 const UNITS = ['kg', 'L', 'un'] as const;
 
 export type RecomputeInput = { products: Array<{ query?: string; sources: SourceResult[] }> };
@@ -30,15 +29,13 @@ function parseMatch(v: unknown, display: boolean): Match | null {
   if (chosenByUser !== undefined && typeof chosenByUser !== 'boolean') return null;
   const base: Match = { title, priceBRL, equivalentBRL, sizeAdjusted, score, uncertain, ...(chosenByUser ? { chosenByUser } : {}) };
   if (!display) return base;
-  const { unitPriceBRL, unit, url } = v;
+  const { unitPriceBRL, unit } = v;
   if (unitPriceBRL !== undefined && !isPrice(unitPriceBRL)) return null;
   if (unit !== undefined && !UNITS.includes(unit as (typeof UNITS)[number])) return null;
-  if (url !== undefined && !(typeof url === 'string' && url.length <= MAX_URL && /^https?:\/\/[^\s]+$/i.test(url))) return null;
   return {
     ...base,
     ...(unitPriceBRL !== undefined ? { unitPriceBRL: unitPriceBRL as number } : {}),
     ...(unit !== undefined ? { unit: unit as (typeof UNITS)[number] } : {}),
-    ...(url !== undefined ? { url: url as string } : {}),
   };
 }
 

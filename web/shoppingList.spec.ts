@@ -13,7 +13,7 @@ const data = {
     {
       query: 'Ovos 30un',
       stats: { cheapest: { source: 'Brasão', priceBRL: 14.99 } },
-      sources: [src('Comper', 'Ovos Sieme 30', 16.98), src('Brasão', 'Bandeja Ovos Avimor C/30', 14.99, { url: 'https://b/ovos' })],
+      sources: [src('Comper', 'Ovos Sieme 30', 16.98), src('Brasão', 'Bandeja Ovos Avimor C/30', 14.99)],
     },
     {
       query: 'Leite integral 1L',
@@ -49,9 +49,9 @@ describe('buildShoppingList', () => {
   });
   it('usa o preço real do item (não o equivalente) e guarda o link', () => {
     const list = buildShoppingList({
-      products: [{ query: 'Arroz 5kg', stats: { cheapest: { source: 'A', priceBRL: 35 } }, sources: [src('A', 'Arroz 1kg', 7, { equivalentBRL: 35, sizeAdjusted: true, url: 'https://a/x' })] }],
+      products: [{ query: 'Arroz 5kg', stats: { cheapest: { source: 'A', priceBRL: 35 } }, sources: [src('A', 'Arroz 1kg', 7, { equivalentBRL: 35, sizeAdjusted: true })] }],
     });
-    expect(list.stores[0]!.items[0]).toMatchObject({ priceBRL: 7, sizeAdjusted: true, url: 'https://a/x' });
+    expect(list.stores[0]!.items[0]).toMatchObject({ priceBRL: 7, sizeAdjusted: true });
   });
   it('resultado vazio gera lista vazia', () => {
     expect(buildShoppingList({ products: [] })).toEqual({ stores: [], missing: [], totalBRL: 0 });

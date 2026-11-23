@@ -48,7 +48,7 @@ describe('parseRecomputeBody', () => {
 });
 
 describe('parseRecomputeBody em modo exibição (link compartilhado)', () => {
-  const full = (over: Record<string, unknown> = {}) => match({ unitPriceBRL: 4.5, unit: 'kg', url: 'https://loja.com/p/1', ...over });
+  const full = (over: Record<string, unknown> = {}) => match({ unitPriceBRL: 4.5, unit: 'kg', ...over });
   const parse = (m: unknown, query: unknown = 'Arroz 5kg') =>
     parseRecomputeBody({ products: [{ query, sources: [ok('ok', m)] }] }, { display: true });
 
@@ -57,21 +57,17 @@ describe('parseRecomputeBody em modo exibição (link compartilhado)', () => {
     expect(r.ok).toBe(true);
     if (r.ok) {
       expect(r.products[0]!.query).toBe('Arroz 5kg');
-      expect(r.products[0]!.sources[0]!.match).toMatchObject({ unitPriceBRL: 4.5, unit: 'kg', url: 'https://loja.com/p/1' });
+      expect(r.products[0]!.sources[0]!.match).toMatchObject({ unitPriceBRL: 4.5, unit: 'kg' });
     }
   });
   it('sem o modo, link e unidade continuam sendo descartados', () => {
     const r = parseRecomputeBody({ products: [{ query: 'a', sources: [ok('ok', full())] }] });
     expect(r.ok && r.products[0]!.sources[0]!.match).toEqual(match());
   });
-  it.each([
-    ['javascript:alert(1)'],
-    ['data:text/html,<script>1</script>'],
-    ['//evil.com/x'],
-    ['ftp://x.com/a'],
-    ['https://' + 'a'.repeat(600)],
-  ])('rejeita link %s', (url) => {
-    expect(parse(full({ url })).ok).toBe(false);
+  it.each([['javascript:alert(1)'], ['https://loja.com/p/1']])('descarta o link %s sem aceitá-lo', (url) => {
+    const r = parse(full({ url }));
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.products[0]!.sources[0]!.match).not.toHaveProperty('url');
   });
   it('rejeita unidade fora de kg/L/un e preço por unidade inválido', () => {
     expect(parse(full({ unit: 'tonelada' })).ok).toBe(false);

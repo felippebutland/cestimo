@@ -16,7 +16,7 @@ export function parseMercafacilCards(cards: Card[], source: string, origin: stri
     const title = c.text.slice(0, priceMatch.index).replace(PREFIX_RE, '').trim();
     const priceBRL = toNumber(priceMatch[1]!);
     if (!title || !Number.isFinite(priceBRL) || priceBRL <= 0) return [];
-    return [{ source, title, priceBRL, url: `${origin}${c.href}` }];
+    return [{ source, title, priceBRL }];
   });
 }
 

@@ -7,7 +7,7 @@ describe('parseMercafacilCards', () => {
   it('extrai título e preço do texto do card', () => {
     const [o] = parseMercafacilCards([card('+3+5+10AddArroz Branco Peruchi 5kgR$ 19,99 /un')], 'Brasão', 'https://www.brasao.com.br');
     expect(o).toMatchObject({ source: 'Brasão', title: 'Arroz Branco Peruchi 5kg', priceBRL: 19.99 });
-    expect(o!.url).toBe('https://www.brasao.com.br/avenida/produto/m/arroz-branco-peruchi-5kg-144280');
+    expect(o).not.toHaveProperty('url');
   });
   it('ignora o peso "5.0 kg" depois do preço e mantém o primeiro preço (atual)', () => {
     const [o] = parseMercafacilCards([card('+3+5+10AddArroz Branco Panelaço 5kgR$ 19,99 /un5.0 kg')], 'B', 'https://x');
