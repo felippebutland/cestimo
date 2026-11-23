@@ -1,0 +1,112 @@
+apiVersion: 1
+
+# Alertas do Cestimo. Aparecem em Grafana > Alerting. Para receber por e-mail, Telegram, Slack etc.,
+# crie um "Contact point" lá e aponte a política padrão para ele (passo a passo no README).
+groups:
+  - orgId: 1
+    name: cestimo-mercados
+    folder: Cestimo
+    interval: 1m
+    rules:
+      # Mercado errando: 80% ou mais das buscas dos últimos 30 min deram erro ou ficaram indisponíveis (mínimo de 3 buscas).
+      - uid: cestimo-mercado-quebrado
+        title: Mercado com erro
+        condition: C
+        for: 10m
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.source }}: {{ humanizePercentage $values.B.Value }} das buscas falharam nos últimos 30 min"
+          description: "Veja o painel de logs do Cestimo. Pode ser bloqueio do site do mercado, mudança no site ou queda."
+        data:
+          - refId: A
+            relativeTimeRange: { from: 1800, to: 0 }
+            datasourceUid: prom
+            model:
+              refId: A
+              instant: true
+              expr: >-
+                (sum by (source) (increase(source_searches_total{result=~"erro|indisponivel"}[30m]))
+                / sum by (source) (increase(source_searches_total[30m])))
+                and on (source) (sum by (source) (increase(source_searches_total[30m])) >= 3)
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [0.8] }
+
+      # Mercado "funcionando" mas sem achar nada: 95% ou mais das buscas das últimas 6 h vieram vazias (mínimo de 8 buscas).
+      # Costuma ser o site do mercado ter mudado e o leitor de preços ter parado de enxergar os produtos.
+      - uid: cestimo-mercado-sem-resultado
+        title: Mercado sem achar produtos
+        condition: C
+        for: 30m
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: info
+        annotations:
+          summary: "{{ $labels.source }}: {{ humanizePercentage $values.B.Value }} das buscas das últimas 6 h vieram sem resultado"
+          description: "Teste o mercado com `npx tsx scripts/check-markets.ts`. O layout do site pode ter mudado."
+        data:
+          - refId: A
+            relativeTimeRange: { from: 21600, to: 0 }
+            datasourceUid: prom
+            model:
+              refId: A
+              instant: true
+              expr: >-
+                (sum by (source) (increase(source_searches_total{result="empty"}[6h]))
+                / sum by (source) (increase(source_searches_total[6h])))
+                and on (source) (sum by (source) (increase(source_searches_total[6h])) >= 8)
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [0.95] }
+
+      # O próprio Cestimo parou de responder ao Prometheus.
+      - uid: cestimo-fora-do-ar
+        title: Cestimo fora do ar
+        condition: C
+        for: 3m
+        noDataState: Alerting
+        execErrState: Alerting
+        labels:
+          severity: critical
+        annotations:
+          summary: "O Prometheus não consegue ler as métricas do Cestimo há 3 min"
+          description: "Container parado, reiniciando em loop ou sem memória. Veja `docker compose logs cestimo`."
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prom
+            model:
+              refId: A
+              instant: true
+              expr: 'min(up{job="cestimo"})'
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: lt, params: [1] }
