@@ -19,7 +19,9 @@ services:
       - ./config:/app/config:ro
       - cestimo_data:/app/data            # números do painel (/admin)
     expose:
-      - "3000"                             # só acessível pela rede interna do Compose
+      - "3000"                             # rede interna do Compose (o Caddy usa esta)
+    ports:
+      - "127.0.0.1:3000:3000"              # só no próprio computador: origem para Cloudflare Tunnel (cloudflared) ou testes
     init: true
     shm_size: "1gb"
     mem_limit: 1536m

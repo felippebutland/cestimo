@@ -277,6 +277,16 @@ docker compose -f docker-compose.prod.yml --profile monitoring up -d --build
 
 O navegador avisa que o certificado de `localhost` não é confiável (é um certificado de teste do Caddy). Em um domínio real, o Caddy emite um certificado válido sozinho.
 
+### Publicar com Cloudflare Tunnel (cloudflared)
+
+Se o servidor está atrás de um roteador, em casa ou sem IP fixo, dá para usar um túnel da Cloudflare em vez de abrir portas e usar o Caddy. O `docker-compose.prod.yml` já publica o app **só no próprio computador**, em `127.0.0.1:3000`, justamente para isso:
+
+1. No painel da Cloudflare (Zero Trust → Networks → Tunnels), crie o túnel e um *Public hostname* com o serviço **`http://127.0.0.1:3000`**.
+2. Rode o `cloudflared` no computador com o token do túnel (por arquivo, para não aparecer na lista de processos): `cloudflared tunnel run --token-file ~/.seu-token`.
+3. Suba o app: `docker compose -f docker-compose.prod.yml --profile monitoring up -d`. Defina `TRUST_PROXY=1` (já é o padrão do compose) para o limite por IP enxergar o visitante real.
+
+> Se o site der **502 Bad Gateway**, o `cloudflared` está no ar, mas **nada responde na origem**. Confira `curl http://127.0.0.1:3000/healthz`; o log do cloudflared mostra `connection refused` e o endereço que ele tentou. Duas causas comuns: o container parou, ou outra coisa ocupa a porta 3000.
+
 ## Variáveis de ambiente
 
 | Variável | Padrão | O que faz |
