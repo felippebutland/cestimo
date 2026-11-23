@@ -63,7 +63,8 @@ const app = buildApp({
   maxConcurrent: num('MAX_CONCURRENT', 2),
   trustProxy: ['1', 'true'].includes(process.env.TRUST_PROXY ?? ''),
 });
-await app.register(fastifyStatic, { root: fileURLToPath(new URL('../../web/', import.meta.url)) });
+// maxAge 0: o navegador revalida a cada acesso (ETag): quem já tem o arquivo não baixa de novo, e atualizações chegam na hora.
+await app.register(fastifyStatic, { root: fileURLToPath(new URL('../../web/', import.meta.url)), maxAge: 0 });
 
 await app.listen({ port: num('PORT', 3000), host: process.env.HOST ?? '127.0.0.1' });
 if (!process.env.METRICS_TOKEN) app.log.warn('METRICS_TOKEN não definido: /admin, /metrics e /admin/stats estão desativados.');
