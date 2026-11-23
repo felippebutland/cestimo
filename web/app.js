@@ -505,3 +505,9 @@ if (savedJob) {
 // Link compartilhado (#r=...): mostra o resultado congelado em vez de uma tela vazia.
 const sharedId = parseShareHash(location.hash);
 if (sharedId && !savedJob) loadShared(sharedId);
+
+// App instalável: o service worker só guarda a casca da página para abrir sem internet (a rede vem primeiro).
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+  navigator.serviceWorker.register('/sw.js').catch(() => {});
+}
+
