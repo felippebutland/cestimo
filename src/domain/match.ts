@@ -6,8 +6,12 @@ export const MATCH_THRESHOLD = 0.6;
 /** Entre MATCH_THRESHOLD e este valor o match é "incerto": aparece, mas não entra em média nem cesta. */
 export const CERTAIN_THRESHOLD = 0.85;
 
+/** Singular simples ("ovos" vira "ovo"): consulta e título passam pela mesma regra, então "ovo" e "ovos" valem igual. */
+const singular = (tok: string): string => (/^[a-z]{4,}$/.test(tok) && tok.endsWith('s') && !/(ss|us|is)$/.test(tok) ? tok.slice(0, -1) : tok);
+const singularSet = (words: string[]): Set<string> => new Set(words.map(singular));
+
 /** Palavras que mudam o produto: se estão no título e não na consulta, pesam mais. */
-const VARIANT_WORDS = new Set([
+const VARIANT_WORDS = singularSet([
   'organico', 'organica', 'integral', 'parboilizado', 'parbolizado', 'desnatado', 'semidesnatado', 'zero',
   'lactose', 'light', 'diet', 'sem', 'vegano', 'vegana', 'artesanal', 'premium', 'infantil', 'baby', 'pet',
   'gourmet', 'importado', 'congelado', 'codorna', 'caipira', 'porta', 'organizador', 'suporte',
@@ -19,8 +23,10 @@ const VARIANT_WORDS = new Set([
   // doces, apresentações diferentes e outras categorias que citam o item ("bala sabor café", "café solúvel", "ração sabor carne")
   'bala', 'balas', 'bombom', 'pirulito', 'chiclete', 'pocket', 'soluvel', 'capsula', 'capsulas', 'instantaneo',
   'racao', 'caes', 'gatos', 'cachorro',
+  // ovo de chocolate não é ovo de galinha
+  'kinder', 'pascoa', 'surpresa',
 ]);
-const NEUTRAL_WORDS = new Set([
+const NEUTRAL_WORDS = singularSet([
   'tipo', 'de', 'da', 'do', 'com', 'em', 'uht', 'longa', 'vida', 'bandeja', 'bdj', 'estojo', 'cartela', 'pacote',
   'grande', 'grandes', 'extra', 'unidade', 'unidades', 'unid', 'un', 'und',
 ]);
@@ -47,7 +53,7 @@ const normalize = (s: string): string =>
     .replace(/(\d),(\d)/g, '$1.$2')
     .replace(/(\d)\s+(kg|grs|gr|g|ml|lts|lt|litros|litro|l|un|und)\b/g, '$1$2');
 
-const tokens = (s: string): Set<string> => new Set(normalize(s).split(/[^a-z0-9.]+/).filter(Boolean));
+const tokens = (s: string): Set<string> => new Set(normalize(s).split(/[^a-z0-9.]+/).filter(Boolean).map(singular));
 
 /** Termos que a consulta exige no título: sem palavras de ligação/embalagem (a menos que sobre nada). */
 function queryTerms(query: string): Set<string> {
@@ -60,8 +66,12 @@ function queryTerms(query: string): Set<string> {
 export function searchTerm(query: string): string {
   const words = query.split(/\s+/).filter(Boolean);
   const kept = words.filter((w) => !QUERY_IGNORED.has(normalize(w)) && !COUNT_TOKEN_RE.test(normalize(w)));
+  if (kept.length === 1 && normalize(kept[0]!) in PLURAL_ONLY) return PLURAL_ONLY[normalize(kept[0]!)]!;
   return kept.length > 0 ? kept.join(' ') : query;
 }
+
+/** Consulta de uma palavra só que as lojas indexam apenas no plural ("ovo" devolve chocolate e sal; "ovos" devolve as bandejas). */
+const PLURAL_ONLY: Record<string, string> = { ovo: 'ovos' };
 
 /** Fração dos termos pedidos presentes no título, penalizada por tamanho divergente/ausente, extras e embalagem múltipla. */
 export function scoreMatch(query: string, title: string): number {

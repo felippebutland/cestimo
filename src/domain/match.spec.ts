@@ -264,3 +264,48 @@ describe('rankCandidates: opções para a pessoa escolher', () => {
   });
 });
 
+describe('singular e plural valem igual', () => {
+  const tray = 'Bandeja Ovos Branco Grande Avimor C/30';
+  it('"Ovo 30un" casa com a bandeja de "Ovos" com certeza', () => {
+    expect(scoreMatch('Ovo 30un', tray)).toBeGreaterThanOrEqual(CERTAIN_THRESHOLD);
+  });
+  it('e "Ovos 30un" com título no singular', () => {
+    expect(scoreMatch('Ovos 30un', 'Ovo Branco Avimor C/30')).toBeGreaterThanOrEqual(CERTAIN_THRESHOLD);
+  });
+  it('não confunde palavras diferentes', () => {
+    expect(scoreMatch('Arroz 5kg', 'Arroz Tio João 5kg')).toBeGreaterThanOrEqual(CERTAIN_THRESHOLD);
+    expect(scoreMatch('Gás 13kg', 'Gás de cozinha 13kg')).toBeGreaterThan(0);
+  });
+  it('variantes no plural continuam penalizando (balas, cápsulas)', () => {
+    expect(scoreMatch('Café 500g', 'Balas pocket sabor café 500g')).toBeLessThan(MATCH_THRESHOLD);
+  });
+});
+
+describe('ovo de chocolate não é ovo de galinha', () => {
+  const kinder = { source: 'x', title: 'Ovo Meninas C/2 Kinder 40g', priceBRL: 23.99 };
+  const tray = { source: 'x', title: 'Bandeja de Ovos Vermelho Bento C/30', priceBRL: 22.99 };
+  it.each(['Ovo 30un', 'Ovos 30un'])('"%s": sozinho, o Kinder não é escolhido', (q) => {
+    expect(pickBest(q, [kinder])).toBeNull();
+  });
+  it.each(['Ovo 30un', 'Ovos 30un'])('"%s": com a bandeja na lista, ela vence', (q) => {
+    expect(pickBest(q, [kinder, tray])?.offer.title).toBe(tray.title);
+  });
+  it('mesmo com Kinder Joy, Páscoa e Surpresa', () => {
+    for (const title of ['Ovo Joy Surpresa Kinder C/2 Und 40g', 'Ovo de Páscoa 150g', 'Ovo Kinder Joy T1 20g']) {
+      expect(pickBest('Ovos 30un', [{ source: 'x', title, priceBRL: 9 }])).toBeNull();
+    }
+  });
+});
+
+describe('searchTerm: palavra única no singular que as lojas só indexam no plural', () => {
+  it('"Ovo" e "Ovo 30un" viram "ovos"', () => {
+    expect(searchTerm('Ovo')).toBe('ovos');
+    expect(searchTerm('Ovo 30un')).toBe('ovos');
+    expect(searchTerm('Bandeja de ovo 30un')).toBe('ovos');
+  });
+  it('não mexe em consulta com mais palavras nem em outros produtos', () => {
+    expect(searchTerm('Ovo de codorna')).toBe('Ovo codorna');
+    expect(searchTerm('Arroz 5kg')).toBe('Arroz 5kg');
+  });
+});
+
