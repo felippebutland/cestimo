@@ -212,5 +212,24 @@ describe('números de uso (painel)', () => {
     expect(js.statusCode).toBe(200);
     expect(js.headers['content-type']).toContain('javascript');
   });
+
+  it('navegador em /admin/stats é levado ao painel visual; chamadas de API continuam recebendo JSON', async () => {
+    const app = buildApp({ sources: two, metricsToken: 'x' });
+    const browser = await app.inject({ method: 'GET', url: '/admin/stats', headers: { ...basic, accept: 'text/html,application/xhtml+xml,*/*;q=0.8' } });
+    expect(browser.statusCode).toBe(302);
+    expect(browser.headers.location).toBe('/admin');
+    const api = await app.inject({ method: 'GET', url: '/admin/stats', headers: { ...basic, accept: '*/*' } });
+    expect(api.statusCode).toBe(200);
+    expect(api.headers['content-type']).toContain('application/json');
+    const fetchJson = await app.inject({ method: 'GET', url: '/admin/stats', headers: { ...basic, accept: 'application/json' } });
+    expect(fetchJson.statusCode).toBe(200);
+  });
+
+  it('/admin/ (com barra no final) também abre o painel', async () => {
+    const app = buildApp({ sources: two, metricsToken: 'x' });
+    const res = await app.inject({ method: 'GET', url: '/admin/', headers: basic });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['content-type']).toContain('text/html');
+  });
 });
 

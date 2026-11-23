@@ -56,7 +56,7 @@ const PRIVATE_LOGGER = {
 const resultOf = (e: SourceEvent): string => (e.status !== 'ok' ? e.status : e.matched ? 'found' : 'empty');
 
 export function buildApp(deps: AppDeps): FastifyInstance {
-  const app = Fastify({ logger: deps.logger ? PRIVATE_LOGGER : false, trustProxy: deps.trustProxy ?? false });
+  const app = Fastify({ logger: deps.logger ? PRIVATE_LOGGER : false, trustProxy: deps.trustProxy ?? false, ignoreTrailingSlash: true });
   const metrics = deps.metrics ?? createAppMetrics();
   const top = deps.top ?? createTopList(500);
   const daily = deps.daily ?? createDailyStats();
@@ -108,7 +108,9 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   app.get('/admin', { preHandler: guard }, (_req, reply) => reply.header('content-type', 'text/html; charset=utf-8').send(adminHtml));
   app.get('/admin/admin.js', { preHandler: guard }, (_req, reply) => reply.header('content-type', 'application/javascript; charset=utf-8').send(adminJs));
 
-  app.get('/admin/stats', { preHandler: guard }, () => {
+  app.get('/admin/stats', { preHandler: guard }, (req, reply) => {
+    // Quem abre este endereço no navegador quer ver o painel, não o JSON (as chamadas de API não pedem text/html).
+    if ((req.headers.accept ?? '').includes('text/html')) return reply.redirect('/admin', 302);
     const searches = metrics.counterSummary('source_searches_total');
     const avgMs = new Map(metrics.histogramSummary('source_search_duration_seconds').map((h) => [h.labels.source, Math.round(h.avg * 1000)]));
     const names = [...new Set(searches.map((s) => s.labels.source!))];
