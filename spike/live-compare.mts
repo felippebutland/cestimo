@@ -10,7 +10,7 @@ const sources = [
   createMercafacilSource(UNICOOPER), createVipSource(PASSARELA), amazonSource,
 ];
 const t = Date.now();
-const r = await compare(['Bandeja de ovos 30un', 'Ovos 20un'], sources);
+const r = await compare(['Molho de tomate 340g', 'Arroz Tio João 5kg', 'Leite integral 1L', 'Ovos 30un', 'Feijão preto 1kg', 'Café 500g'], sources);
 for (const p of r.products) {
   console.log(`\n## ${p.query}  stats=${p.stats ? `min ${p.stats.cheapest.source} R$${p.stats.cheapest.priceBRL} média ${p.stats.averageBRL.toFixed(2)} dif ${p.stats.diffPct.toFixed(0)}%` : 'null'}`);
   for (const s of p.sources) {

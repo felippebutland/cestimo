@@ -167,3 +167,62 @@ describe('variedades de arroz são outro produto', () => {
   });
 });
 
+describe('produto derivado não é o produto pedido (molho de tomate x sardinha em molho de tomate)', () => {
+  const Q = 'Molho de tomate 340g';
+  it('sardinha/atum em molho de tomate ficam abaixo da certeza', () => {
+    expect(scoreMatch(Q, 'Sardinha 88 com Molho de Tomate 125g')).toBeLessThan(CERTAIN_THRESHOLD);
+    expect(scoreMatch(Q, 'Atum 88 Ralado Molho Tomate 140g')).toBeLessThan(CERTAIN_THRESHOLD);
+  });
+  it('sem outro candidato, a sardinha não vira "molho de tomate" (melhor sem resultado do que errado)', () => {
+    expect(pickBest(Q, [o('Sardinha 88 com Molho de Tomate 125g', 8.99)])).toBeNull();
+  });
+  it('entre sardinha e molhos de outro tamanho, escolhe o molho', () => {
+    const r = pickBest(Q, [
+      o('Sardinha 88 com Molho de Tomate 125g', 8.99),
+      o('Molho de Tomate Heinz Tradicional 240g', 5.49),
+      o('Molho tomate etti tradicional 300gr 300GR', 1.89),
+    ]);
+    expect(r?.offer.priceBRL).toBe(1.89);
+    expect(r?.sizeAdjusted).toBe(true);
+  });
+  it('creme de leite e achocolatado não são "leite"', () => {
+    expect(scoreMatch('Leite 1L', 'Achocolatado Leite 1L')).toBeLessThan(CERTAIN_THRESHOLD);
+    expect(scoreMatch('Leite integral 1L', 'Creme de Leite Integral 1L')).toBeLessThan(CERTAIN_THRESHOLD);
+  });
+  it('quem pede o derivado o recebe normalmente', () => {
+    expect(scoreMatch('Sardinha em molho de tomate 125g', 'Sardinha 88 com Molho de Tomate 125g')).toBeGreaterThanOrEqual(CERTAIN_THRESHOLD);
+    expect(scoreMatch('Creme de leite 200g', 'Creme de Leite Piracanjuba 200g')).toBeGreaterThanOrEqual(CERTAIN_THRESHOLD);
+  });
+});
+
+describe('outro tamanho: prefere o mais próximo do pedido', () => {
+  it('300g vence 1kg quando o pedido é 340g, mesmo sendo o 1kg mais barato por unidade', () => {
+    const r = pickBest('Molho de Tomate 340g', [o('Molho de Tomate Marca 1kg', 4), o('Molho de Tomate Marca 300g', 3)]);
+    expect(r?.offer.title).toContain('300g');
+  });
+  it('notas quase iguais (uma marca a mais) não impedem de escolher o tamanho mais próximo', () => {
+    const r = pickBest('Molho de Tomate 340g', [o('Molho de Tomate Heinz 240g', 5), o('Molho de Tomate Heinz Tradicional 300g', 6)]);
+    expect(r?.offer.title).toContain('300g');
+  });
+  it('nota claramente melhor continua valendo mais que o tamanho', () => {
+    const r = pickBest('Arroz Tio João 5kg', [o('Arroz Tio João 1kg', 7), o('Arroz Premium Importado Tio João 4kg', 30)]);
+    expect(r?.offer.title).toBe('Arroz Tio João 1kg');
+  });
+});
+
+describe('outros produtos que citam o item (bala de café, café solúvel, ração)', () => {
+  it('bala sabor café não é café', () => {
+    expect(scoreMatch('Café 500g', 'Bala pocket cafe 500gr')).toBeLessThan(CERTAIN_THRESHOLD);
+  });
+  it('café em cápsula e café solúvel são outra apresentação', () => {
+    expect(scoreMatch('Café 500g', 'Café solúvel Nescafé 500g')).toBeLessThan(CERTAIN_THRESHOLD);
+    expect(scoreMatch('Café 500g', 'Café em cápsulas Nespresso 500g')).toBeLessThan(CERTAIN_THRESHOLD);
+  });
+  it('ração para cães não é carne', () => {
+    expect(scoreMatch('Carne 1kg', 'Ração para cães sabor carne 1kg')).toBeLessThan(CERTAIN_THRESHOLD);
+  });
+  it('o café comum continua confiável', () => {
+    expect(scoreMatch('Café 500g', 'Café Melitta Tradicional 500g')).toBeGreaterThanOrEqual(CERTAIN_THRESHOLD);
+  });
+});
+

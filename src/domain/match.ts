@@ -12,6 +12,13 @@ const VARIANT_WORDS = new Set([
   'lactose', 'light', 'diet', 'sem', 'vegano', 'vegana', 'artesanal', 'premium', 'infantil', 'baby', 'pet',
   'gourmet', 'importado', 'congelado', 'codorna', 'caipira', 'porta', 'organizador', 'suporte',
   'carnaroli', 'arboreo', 'basmati', 'jasmim', 'sushi', 'risoto',
+  // produtos derivados: contêm o item pedido como ingrediente ("sardinha em molho de tomate", "creme de leite")
+  'sardinha', 'atum', 'salsicha', 'linguica', 'almondega', 'feijoada', 'biscoito', 'bolacha', 'chocolate', 'sorvete',
+  'iogurte', 'achocolatado', 'creme', 'condensado', 'doce', 'extrato', 'ketchup', 'catchup', 'polpa', 'pure', 'suco',
+  'refrigerante', 'cerveja', 'vinho', 'molho', 'massa',
+  // doces, apresentações diferentes e outras categorias que citam o item ("bala sabor café", "café solúvel", "ração sabor carne")
+  'bala', 'balas', 'bombom', 'pirulito', 'chiclete', 'pocket', 'soluvel', 'capsula', 'capsulas', 'instantaneo',
+  'racao', 'caes', 'gatos', 'cachorro',
 ]);
 const NEUTRAL_WORDS = new Set([
   'tipo', 'de', 'da', 'do', 'com', 'em', 'uht', 'longa', 'vida', 'bandeja', 'bdj', 'estojo', 'cartela', 'pacote',
@@ -38,7 +45,7 @@ const normalize = (s: string): string =>
     .replace(/\p{M}/gu, '')
     .toLowerCase()
     .replace(/(\d),(\d)/g, '$1.$2')
-    .replace(/(\d)\s+(kg|g|ml|lt|l|un|und)\b/g, '$1$2');
+    .replace(/(\d)\s+(kg|grs|gr|g|ml|lts|lt|litros|litro|l|un|und)\b/g, '$1$2');
 
 const tokens = (s: string): Set<string> => new Set(normalize(s).split(/[^a-z0-9.]+/).filter(Boolean));
 
@@ -72,7 +79,7 @@ export function scoreMatch(query: string, title: string): number {
 
 /** Contagem de unidades ("30un"): os buscadores das lojas não a entendem. */
 const COUNT_TOKEN_RE = /^\d+(un|und|unid|unidades?)$/;
-const SIZE_TOKEN_RE = /^\d+(\.\d+)?(kg|g|ml|lt|l|un|und)$/;
+const SIZE_TOKEN_RE = /^\d+(\.\d+)?(kg|grs?|g|ml|lts?|litros?|l|un|und)$/;
 
 const isNeutral = (tok: string): boolean =>
   tok.length <= 1 || /^\d+$/.test(tok) || /^tp?\d$/.test(tok) || SIZE_TOKEN_RE.test(tok) || NEUTRAL_WORDS.has(tok);
@@ -85,7 +92,10 @@ function extrasFactor(q: Set<string>, t: Set<string>): number {
   return VARIANT_FACTOR ** variants * OTHER_EXTRA_FACTOR ** others;
 }
 
-type Scored = { offer: Offer; score: number; words: number; rank: number };
+type Scored = { offer: Offer; score: number; words: number; rank: number; distance: number };
+
+/** Notas que diferem menos que isto contam como empate (uma palavra extra de marca pesa ~0,05). */
+const SCORE_TIE = 0.06;
 export type Pick = { offer: Offer; score: number; sizeAdjusted: boolean };
 
 
@@ -95,8 +105,11 @@ function termRecall(q: Set<string>, t: Set<string>): number {
   return terms.length === 0 ? 0 : terms.filter((tok) => t.has(tok)).length / terms.length;
 }
 
-const better = (a: Scored, b: Scored): boolean =>
-  a.score !== b.score ? a.score > b.score : a.words !== b.words ? a.words < b.words : a.rank < b.rank;
+const better = (a: Scored, b: Scored): boolean => {
+  // Em "outro tamanho", com notas quase iguais, vence o tamanho mais próximo do pedido.
+  if (a.distance !== b.distance && Math.abs(a.score - b.score) < SCORE_TIE) return a.distance < b.distance;
+  return a.score !== b.score ? a.score > b.score : a.words !== b.words ? a.words < b.words : a.rank < b.rank;
+};
 
 const best = (items: Scored[]): Scored | null =>
   items.reduce<Scored | null>((acc, cur) => (acc === null || better(cur, acc) ? cur : acc), null);
@@ -113,12 +126,12 @@ function sizeAdjustedCandidate(query: string, offer: Offer): Scored | null {
   const t = tokens(offer.title);
   const score = termRecall(queryTerms(query), t) * extrasFactor(q, t);
   if (score < CERTAIN_THRESHOLD) return null;
-  return { offer, score, words: tokens(offer.title).size, rank: offer.priceBRL * (qq.value / tq.value) };
+  return { offer, score, words: tokens(offer.title).size, rank: offer.priceBRL * (qq.value / tq.value), distance: Math.abs(Math.log(tq.value / qq.value)) };
 }
 
 export function pickBest(query: string, offers: Offer[]): Pick | null {
   const exact = best(
-    offers.map((offer): Scored => ({ offer, score: scoreMatch(query, offer.title), words: tokens(offer.title).size, rank: offer.priceBRL })),
+    offers.map((offer): Scored => ({ offer, score: scoreMatch(query, offer.title), words: tokens(offer.title).size, rank: offer.priceBRL, distance: 0 })),
   );
   if (exact && exact.score >= MATCH_THRESHOLD) return { offer: exact.offer, score: exact.score, sizeAdjusted: false };
   const adjusted = best(offers.flatMap((o) => sizeAdjustedCandidate(query, o) ?? []));

@@ -3,8 +3,13 @@ export type Quantity = { value: number; dim: 'mass' | 'volume' | 'count' };
 const UNITS: Record<string, { dim: Quantity['dim']; factor: number }> = {
   kg: { dim: 'mass', factor: 1000 },
   g: { dim: 'mass', factor: 1 },
+  gr: { dim: 'mass', factor: 1 },
+  grs: { dim: 'mass', factor: 1 },
   l: { dim: 'volume', factor: 1000 },
   lt: { dim: 'volume', factor: 1000 },
+  lts: { dim: 'volume', factor: 1000 },
+  litro: { dim: 'volume', factor: 1000 },
+  litros: { dim: 'volume', factor: 1000 },
   ml: { dim: 'volume', factor: 1 },
   un: { dim: 'count', factor: 1 },
   und: { dim: 'count', factor: 1 },
@@ -14,7 +19,7 @@ const UNITS: Record<string, { dim: Quantity['dim']; factor: number }> = {
 };
 
 /** "5kg", "500 g", "12un", "30 unidades". */
-const UNIT_RE = /(\d+(?:[.,]\d+)?)\s*(kg|ml|lt|unidades|unidade|unid|und|un|g|l)\b/i;
+const UNIT_RE = /(\d+(?:[.,]\d+)?)\s*(kg|ml|lts|lt|litros|litro|unidades|unidade|unid|und|un|grs|gr|g|l)\b/i;
 /** Contagem sem unidade: "C/30", "c20", "com 30" (exceto quando o número é seguido de kg/g/ml/l). */
 const COUNT_PREFIX_RE = /(?:\bc\/\s*|\bc(?=\d)|\bcom\s+)(\d+)\b(?![.,]?\d*\s*(?:kg|ml|lt|g|l)\b)/i;
 

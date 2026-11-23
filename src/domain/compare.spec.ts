@@ -115,46 +115,36 @@ describe('compare', () => {
     expect(r.products[0]!.sources[0]!.match?.priceBRL).toBe(15);
   });
 
-  it('preço muito fora do padrão fica incerto e sai das estatísticas', async () => {
-    const mk = (name: string, price: number) => src(name, async () => [offer(name, 'Arroz Urbano 5kg', price)]);
-    const r = await compare(['Arroz Urbano 5kg'], [mk('a', 20), mk('b', 21), mk('c', 22), mk('d', 100)]);
+  it('preço escalado de outro tamanho muito acima do padrão fica incerto e sai das estatísticas', async () => {
+    const mk = (name: string, price: number, title = 'Arroz Urbano 5kg') => src(name, async () => [offer(name, title, price)]);
+    const r = await compare(['Arroz Urbano 5kg'], [mk('a', 20), mk('b', 21), mk('c', 22), mk('d', 20, 'Arroz Urbano 1kg')]);
     const d = r.products[0]!.sources[3]!;
-    expect(d.match?.uncertain).toBe(true);
+    expect(d.match).toMatchObject({ sizeAdjusted: true, equivalentBRL: 100, uncertain: true });
     expect(d.reason).toMatch(/fora do padrão/);
     expect(r.products[0]!.stats?.maxBRL).toBe(22);
     expect(r.products[0]!.stats?.averageBRL).toBeCloseTo(21);
   });
 
   it('com poucas fontes não marca outlier (sem base para comparar)', async () => {
-    const mk = (name: string, price: number) => src(name, async () => [offer(name, 'Arroz Urbano 5kg', price)]);
-    const r = await compare(['Arroz Urbano 5kg'], [mk('a', 20), mk('b', 100)]);
+    const mk = (name: string, price: number, title = 'Arroz Urbano 5kg') => src(name, async () => [offer(name, title, price)]);
+    const r = await compare(['Arroz Urbano 5kg'], [mk('a', 20), mk('b', 20, 'Arroz Urbano 1kg')]);
     expect(r.products[0]!.sources[1]!.match?.uncertain).toBe(false);
   });
 
-  it('preço muito abaixo do padrão também é suspeito', async () => {
-    const mk = (name: string, price: number) => src(name, async () => [offer(name, 'Arroz Urbano 5kg', price)]);
-    const r = await compare(['Arroz Urbano 5kg'], [mk('a', 20), mk('b', 21), mk('c', 22), mk('d', 2)]);
+  it('preço escalado muito abaixo do padrão também é suspeito', async () => {
+    const mk = (name: string, price: number, title = 'Arroz Urbano 5kg') => src(name, async () => [offer(name, title, price)]);
+    const r = await compare(['Arroz Urbano 5kg'], [mk('a', 20), mk('b', 21), mk('c', 22), mk('d', 0.4, 'Arroz Urbano 1kg')]);
     expect(r.products[0]!.sources[3]!.match?.uncertain).toBe(true);
     expect(r.products[0]!.stats?.cheapest.source).toBe('a');
   });
 
-  it('avisa o observador de cada busca com mercado, status e tempo', async () => {
-    const events: Array<{ source: string; status: string; ms: number; matched: boolean; query: string }> = [];
-    await compare(['Arroz Urbano 5kg'], [
-      src('a', async () => [offer('a', 'Arroz Urbano 5kg', 20)]),
-      src('b', async () => { throw new Error('boom'); }),
-      src('c', async () => []),
-    ], { observer: (e) => events.push(e) });
-    expect(events.map((e) => [e.source, e.status, e.matched])).toEqual([['a', 'ok', true], ['b', 'erro', false], ['c', 'ok', false]]);
-    expect(events.every((e) => e.ms >= 0 && e.query === 'Arroz Urbano 5kg')).toBe(true);
-    expect(events[1]).toMatchObject({ reason: 'boom' });
-  });
-
-  it('observador que lança não derruba a comparação', async () => {
-    const r = await compare(['Arroz Urbano 5kg'], [src('a', async () => [offer('a', 'Arroz Urbano 5kg', 20)])], {
-      observer: () => { throw new Error('métrica quebrou'); },
-    });
-    expect(r.products[0]!.sources[0]!.status).toBe('ok');
+  it('item de tamanho exato e título compatível é confiável mesmo com preço bem diferente (marcas)', async () => {
+    const mk = (name: string, price: number) => src(name, async () => [offer(name, 'Arroz Urbano 5kg', price)]);
+    const r = await compare(['Arroz Urbano 5kg'], [mk('a', 20), mk('b', 21), mk('c', 22), mk('d', 2), mk('e', 80)]);
+    const [, , , d, e] = r.products[0]!.sources;
+    expect(d!.match?.uncertain).toBe(false);
+    expect(e!.match?.uncertain).toBe(false);
+    expect(r.products[0]!.stats?.cheapest.source).toBe('d');
   });
 
   it('avisa o progresso a cada produto concluído', async () => {

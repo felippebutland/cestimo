@@ -91,13 +91,17 @@ const median = (xs: number[]): number => {
   return s.length % 2 ? s[m]! : (s[m - 1]! + s[m]!) / 2;
 };
 
-/** Preço muito acima/abaixo da mediana das outras lojas é provável match errado: vira "incerto". */
+/**
+ * Preço escalado (de outro tamanho) muito acima/abaixo da mediana das outras lojas é provável match errado: vira "incerto".
+ * Só vale para itens "ajustados": a escala multiplica o erro (1 kg x5). Item de tamanho exato com título compatível é confiável,
+ * mesmo com preço bem diferente (marcas): o mais barato de verdade costuma ser uma marca econômica.
+ */
 function flagOutliers(results: SourceResult[]): SourceResult[] {
   const prices = results.flatMap((r) => (r.match && !r.match.uncertain ? [r.match.equivalentBRL] : []));
   if (prices.length < MIN_SOURCES_FOR_OUTLIER) return results;
   const mid = median(prices);
   return results.map((r) =>
-    r.match && !r.match.uncertain && (r.match.equivalentBRL > mid * OUTLIER_HIGH || r.match.equivalentBRL < mid * OUTLIER_LOW)
+    r.match && !r.match.uncertain && r.match.sizeAdjusted && (r.match.equivalentBRL > mid * OUTLIER_HIGH || r.match.equivalentBRL < mid * OUTLIER_LOW)
       ? { ...r, reason: 'preço muito fora do padrão das outras lojas', match: { ...r.match, uncertain: true } }
       : r,
   );

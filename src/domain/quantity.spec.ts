@@ -55,3 +55,16 @@ describe('unitLabel', () => {
     expect(unitLabel('count')).toBe('un');
   });
 });
+
+describe('extractQuantity: grafias comuns nas lojas', () => {
+  it.each([
+    ['Molho tomate etti tradicional 300gr 300GR', { value: 300, dim: 'mass' }],
+    ['Arroz 5 grs', { value: 5, dim: 'mass' }],
+    ['Suco de uva 1 litro', { value: 1000, dim: 'volume' }],
+    ['Água 1,5 litros', { value: 1500, dim: 'volume' }],
+    ['Refrigerante 2 lts', { value: 2000, dim: 'volume' }],
+  ])('%s', (text, expected) => {
+    expect(extractQuantity(text)).toEqual(expected);
+  });
+});
+
