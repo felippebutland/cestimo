@@ -114,6 +114,10 @@
     .flag.bad { color: var(--bad); }
     .none { color: var(--muted); font-size: 13px; }
     .note.shared { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+    .install { border: 1px solid var(--line); background: var(--panel); color: var(--text); border-radius: 6px; padding: 6px 12px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+    .install:hover { border-color: var(--muted); }
+    .install-steps { margin: 12px 0 16px; padding-left: 20px; display: grid; gap: 8px; font-size: 14px; }
+    .install[hidden] { display: none; }
     .trend { white-space: normal; }
     .trend.up { color: var(--bad); }
     .trend.down { color: var(--good); }
@@ -162,6 +166,7 @@
     <header class="top">
       <h1 id="app-title">Cestimo</h1>
       <p id="app-tagline">Comparador de preços de supermercados</p>
+      <button id="install" class="install no-print" type="button" hidden>Instalar app</button>
     </header>
 
     <main>

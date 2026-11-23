@@ -1,5 +1,6 @@
 import { formatBRL, formatPct } from './format.js';
 import { JobExpiredError, submitJob, waitForJob } from './jobs.js';
+import { installMode } from './install.js';
 import { formatDay, parseSaved, snapshot, variations } from './history.js';
 import { parseShareHash, shareUrl, toShareBody } from './share.js';
 import { applyChoice, mergeRecomputed, toRecomputeBody } from './overrides.js';
@@ -510,4 +511,42 @@ if (sharedId && !savedJob) loadShared(sharedId);
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
   navigator.serviceWorker.register('/sw.js').catch(() => {});
 }
+
+/* ---------- Instalar como app ---------- */
+let installPrompt = null;
+const refreshInstall = () => {
+  const mode = installMode({
+    standalone: matchMedia('(display-mode: standalone)').matches || navigator.standalone === true,
+    userAgent: navigator.userAgent,
+    hasPrompt: installPrompt !== null,
+    touchPoints: navigator.maxTouchPoints,
+  });
+  $('install').hidden = mode === 'hidden';
+  $('install').dataset.mode = mode;
+};
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  installPrompt = e;
+  refreshInstall();
+});
+window.addEventListener('appinstalled', () => { installPrompt = null; refreshInstall(); });
+$('install').addEventListener('click', async () => {
+  if ($('install').dataset.mode === 'prompt' && installPrompt) {
+    const prompt = installPrompt;
+    installPrompt = null;
+    await prompt.prompt();
+    refreshInstall();
+    return;
+  }
+  const dialog = el('dialog', { className: 'swap-dialog', ariaLabel: 'Como instalar no iPhone' },
+    el('h3', { textContent: 'Instalar o Cestimo' }),
+    el('ol', { className: 'install-steps' },
+      el('li', { textContent: 'Toque em Compartilhar (o quadrado com a seta para cima) na barra do Safari.' }),
+      el('li', { textContent: 'Role e toque em "Adicionar à Tela de Início".' }),
+      el('li', { textContent: 'Toque em "Adicionar". O ícone do Cestimo aparece na tela inicial.' })),
+    el('div', { className: 'dialog-actions' }, el('button', { type: 'button', className: 'btn', textContent: 'Entendi', onclick: () => { dialog.close(); dialog.remove(); } })));
+  document.body.append(dialog);
+  dialog.showModal();
+});
+refreshInstall();
 
