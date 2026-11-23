@@ -197,6 +197,7 @@ Abra `https://seu-dominio/admin` no navegador (ele pede a senha) e veja, atualiz
 - **Visitas, comparações, itens buscados, itens por lista, tempo médio.**
 - **Listas copiadas** e a **taxa de cópia** (cópias ÷ comparações), **impressões**, quantas vezes trocaram de modo, escolheram um mercado ou usaram um exemplo.
 - **Economia estimada:** soma, por produto, de *preço médio − preço mais barato*, ou seja, quanto as pessoas deixam de gastar escolhendo o mercado mais barato.
+- **Quem acessa:** tipo de aparelho (celular, tablet, computador), sistema (Android, iOS, Windows, macOS…) e navegador (Chrome, Safari, Edge…), **só como categoria genérica e contagem**. O texto completo do navegador (`User-Agent`), versões e IP **não são guardados**. Robôs (monitores de uptime, buscadores, scripts) são contados à parte e ficam fora das visitas.
 - **% de itens encontrados** e **saúde de cada mercado** (achou / sem item / erro / indisponível e tempo médio).
 - **Gráficos dos últimos 14 dias** e o ranking dos **produtos mais buscados**.
 
@@ -214,7 +215,7 @@ Os números ficam gravados em disco (`DATA_DIR`, padrão `./data`; no Docker, o 
 
 **Saúde das fontes** (`source_searches_total{source,result}`): `result` é `found`, `empty`, `erro` ou `indisponivel`. Quando um site muda e o adaptador quebra, `erro` sobe naquele `source`. Tempo em `source_search_duration_seconds{source}`.
 
-**Uso:** `page_views_total`, `compare_requests_total{outcome}`, `compare_items`, `compare_duration_seconds`, `list_items_total{result}`, `savings_brl_total`, `ui_events_total{event}` e `cache_events_total{source,event}`.
+**Uso:** `page_views_total`, `visits_by_client_total{device,os,browser}`, `bot_visits_total`, `compare_requests_total{outcome}`, `compare_items`, `compare_duration_seconds`, `list_items_total{result}`, `savings_brl_total`, `ui_events_total{event}` e `cache_events_total{source,event}`.
 
 **Logs estruturados (uma linha JSON por evento, sem IP):**
 

@@ -231,5 +231,54 @@ describe('números de uso (painel)', () => {
     expect(res.statusCode).toBe(200);
     expect(res.headers['content-type']).toContain('text/html');
   });
+
+  describe('quem acessa: dispositivo, sistema, navegador e robôs', () => {
+    const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1';
+    const WIN_CHROME = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
+    const visit = (app: ReturnType<typeof buildApp>, ua: string) => app.inject({ method: 'GET', url: '/', headers: { 'user-agent': ua } });
+    const home = () => {
+      const app = buildApp({ sources: two, metricsToken: 'x' });
+      app.get('/', () => 'ok');
+      return app;
+    };
+
+    it('conta cada visita por dispositivo, sistema e navegador', async () => {
+      const app = home();
+      await visit(app, IPHONE); await visit(app, IPHONE); await visit(app, WIN_CHROME);
+      const { clients, totals } = await stats(app);
+      expect(totals.pageViews).toBe(3);
+      expect(clients.device).toEqual([{ name: 'celular', count: 2 }, { name: 'computador', count: 1 }]);
+      expect(clients.os).toEqual([{ name: 'iOS', count: 2 }, { name: 'Windows', count: 1 }]);
+      expect(clients.browser).toEqual([{ name: 'Safari', count: 2 }, { name: 'Chrome', count: 1 }]);
+      expect(clients.bots).toBe(0);
+    });
+
+    it('robôs não entram nas visitas: são contados à parte', async () => {
+      const app = home();
+      await visit(app, IPHONE);
+      await visit(app, 'curl/8.4.0');
+      await visit(app, 'Mozilla/5.0 (compatible; UptimeRobot/2.0)');
+      const { clients, totals } = await stats(app);
+      expect(totals.pageViews).toBe(1);
+      expect(clients.bots).toBe(2);
+      expect(clients.device).toEqual([{ name: 'celular', count: 1 }]);
+    });
+
+    it('/metrics expõe as contagens com tags, sem o User-Agent', async () => {
+      const app = home();
+      await visit(app, IPHONE);
+      await visit(app, 'curl/8.4.0');
+      const body = (await app.inject({ method: 'GET', url: '/metrics', headers: basic })).body;
+      expect(body).toContain('visits_by_client_total{browser="Safari",device="celular",os="iOS"} 1');
+      expect(body).toContain('bot_visits_total 1');
+      expect(body).not.toContain('Mozilla');
+      expect(body).not.toContain('iPhone OS');
+    });
+
+    it('sem visitas, as listas vêm vazias', async () => {
+      const { clients } = await stats(home());
+      expect(clients).toEqual({ device: [], os: [], browser: [], bots: 0 });
+    });
+  });
 });
 

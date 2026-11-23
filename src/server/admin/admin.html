@@ -50,6 +50,9 @@
     .rank-row .bar { height: 8px; border-radius: 4px; background: var(--line-soft); overflow: hidden; }
     .rank-row .bar i { display: block; height: 100%; background: var(--bar); }
     .rank-row span:last-child { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+    .three { display: grid; gap: 20px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+    .three h3 { margin: 0 0 8px; font-size: 13px; font-weight: 600; color: var(--muted); }
+    .rank-row.wide { grid-template-columns: minmax(80px, 140px) 1fr 74px; }
     .two { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
     .muted { color: var(--muted); font-size: 12.5px; }
     #err { color: var(--bad); margin: 10px 0; }
@@ -80,6 +83,17 @@
         <h2>Produtos mais buscados</h2>
         <div class="rank" id="top"></div>
       </div>
+    </section>
+
+    <section class="panel">
+      <h2>Quem acessa</h2>
+      <div class="three">
+        <div><h3>Dispositivo</h3><div class="rank" id="dev"></div></div>
+        <div><h3>Sistema</h3><div class="rank" id="os"></div></div>
+        <div><h3>Navegador</h3><div class="rank" id="browser"></div></div>
+      </div>
+      <p class="muted" id="bots"></p>
+      <p class="muted">Só categorias genéricas e contagem (por exemplo "celular · Android · Chrome"). Não guardamos o texto completo do navegador, versões nem IP.</p>
     </section>
 
     <section class="panel">

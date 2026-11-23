@@ -10,6 +10,8 @@ export function createAppMetrics(): Metrics {
   m.define('source_search_duration_seconds', 'histogram', 'Duração da busca em cada mercado', [0.5, 1, 2, 5, 10, 20]);
   m.define('cache_events_total', 'counter', 'Acertos e erros do cache, por mercado (event=hit|miss)');
   m.define('page_views_total', 'counter', 'Visitas à página inicial');
+  m.define('visits_by_client_total', 'counter', 'Visitas por dispositivo, sistema e navegador (categorias genéricas, sem robôs)');
+  m.define('bot_visits_total', 'counter', 'Visitas de robôs (monitores, buscadores, scripts), fora das visitas humanas');
   m.define('ui_events_total', 'counter', 'Ações na interface, por evento (copy_item, copy_store, print_*, tab_*, pick_store, example)');
   m.define('list_items_total', 'counter', 'Itens buscados, por resultado (found = com preço confiável, missing = sem)');
   m.define('savings_brl_total', 'counter', 'Economia estimada em R$: preço médio menos o mais barato, somado por produto');

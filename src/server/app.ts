@@ -4,6 +4,7 @@ import { compare, type SourceEvent } from '../domain/compare.js';
 import { parseList } from '../domain/parseList.js';
 import type { PriceSource } from '../domain/types.js';
 import { createAppMetrics } from './appMetrics.js';
+import { parseClient } from './client.js';
 import { basicAuthOk, createGate, createRateLimiter } from './limits.js';
 import { createDailyStats, type DailyStats } from './dailyStats.js';
 import { createTopList, normalizeQuery, type Metrics } from './metrics.js';
@@ -75,8 +76,14 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   app.addHook('onResponse', async (req, reply) => {
     const path = req.url.split('?')[0];
     if (req.method === 'GET' && (path === '/' || path === '/index.html') && (reply.statusCode === 200 || reply.statusCode === 304)) {
-      metrics.inc('page_views_total');
-      daily.add('page_view');
+      const client = parseClient(req.headers['user-agent']);
+      if (client.bot) {
+        metrics.inc('bot_visits_total');
+      } else {
+        metrics.inc('page_views_total');
+        metrics.inc('visits_by_client_total', { device: client.device, os: client.os, browser: client.browser });
+        daily.add('page_view');
+      }
     }
   });
 
@@ -104,6 +111,16 @@ export function buildApp(deps: AppDeps): FastifyInstance {
 
   const sum = (name: string, label?: [string, string]): number =>
     metrics.counterSummary(name).filter((c) => !label || c.labels[label[0]] === label[1]).reduce((t, c) => t + c.value, 0);
+
+  /** Contagem de visitas por uma tag (dispositivo, sistema ou navegador), da maior para a menor. */
+  const breakdown = (label: string): Array<{ name: string; count: number }> => {
+    const totals = new Map<string, number>();
+    for (const c of metrics.counterSummary('visits_by_client_total')) {
+      const name = c.labels[label] ?? 'Outro';
+      totals.set(name, (totals.get(name) ?? 0) + c.value);
+    }
+    return [...totals].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+  };
 
   app.get('/admin', { preHandler: guard }, (_req, reply) => reply.header('content-type', 'text/html; charset=utf-8').send(adminHtml));
   app.get('/admin/admin.js', { preHandler: guard }, (_req, reply) => reply.header('content-type', 'application/javascript; charset=utf-8').send(adminJs));
@@ -141,6 +158,12 @@ export function buildApp(deps: AppDeps): FastifyInstance {
         copyRate: compares ? Math.round((copies / compares) * 1000) / 1000 : 0,
       },
       events,
+      clients: {
+        device: breakdown('device'),
+        os: breakdown('os'),
+        browser: breakdown('browser'),
+        bots: sum('bot_visits_total'),
+      },
       days: daily.series(14),
       sources: names.map((source) => ({
         source, found: count(source, 'found'), empty: count(source, 'empty'), erro: count(source, 'erro'),

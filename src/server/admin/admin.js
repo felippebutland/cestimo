@@ -107,6 +107,27 @@ function renderTop(top) {
     : [el('p', { className: 'muted', textContent: 'Ainda sem buscas.' })]));
 }
 
+function renderClients(clients, pageViews) {
+  const total = (items) => items.reduce((t, i) => t + i.count, 0);
+  const fill = (id, items) => {
+    const sum = total(items);
+    const max = Math.max(1, ...items.map((i) => i.count));
+    $(id).replaceChildren(...(items.length ? items.map((i) =>
+      el('div', { className: 'rank-row wide' }, el('span', { textContent: i.name }),
+        el('div', { className: 'bar' }, el('i', { style: `width:${(i.count / max) * 100}%` })),
+        el('span', { textContent: `${int(i.count)} · ${pct(i.count / sum)}` })))
+      : [el('p', { className: 'muted', textContent: 'Ainda sem visitas.' })]));
+  };
+  fill('dev', clients.device);
+  fill('os', clients.os);
+  fill('browser', clients.browser);
+  const known = total(clients.device);
+  const notes = [];
+  if (clients.bots > 0) notes.push(`${int(clients.bots)} visita(s) de robôs (monitores, buscadores, scripts) ficam de fora dos números acima.`);
+  if (pageViews > known) notes.push(`${int(pageViews - known)} visita(s) anteriores a este recurso não têm aparelho registrado.`);
+  $('bots').textContent = notes.join(' ');
+}
+
 function renderEvents(events) {
   const rows = Object.entries(EVENT_LABELS).map(([k, label]) => el('tr', {}, el('td', { textContent: label }), el('td', { textContent: int(events[k] ?? 0) })));
   $('events').replaceChildren(el('tbody', {}, ...rows));
@@ -121,6 +142,7 @@ async function load() {
     renderCharts(d.days);
     renderSources(d.sources);
     renderTop(d.top);
+    renderClients(d.clients, d.totals.pageViews);
     renderEvents(d.events);
     $('err').textContent = '';
     $('updated').textContent = `No ar há ${dec(d.uptimeSeconds / 3600)} h · atualizado às ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} · renova a cada 30 s`;
