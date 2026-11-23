@@ -1,6 +1,7 @@
 import { formatBRL, formatPct } from './format.js';
 import { JobExpiredError, submitJob, waitForJob } from './jobs.js';
 import { formatDay, parseSaved, snapshot, variations } from './history.js';
+import { parseShareHash, shareUrl, toShareBody } from './share.js';
 import { applyChoice, mergeRecomputed, toRecomputeBody } from './overrides.js';
 import { buildShoppingList, buildSingleStoreList, toText } from './shoppingList.js';
 
@@ -102,7 +103,7 @@ function trendLine(v, since) {
   return el('div', { className: `sub trend ${v.direction}`, textContent: text, title: `Menor preço na consulta anterior: ${formatBRL(v.previousBRL)}` });
 }
 
-function comparisonPanel(data, onSwap, baseline) {
+function comparisonPanel(data, onSwap, baseline, actions) {
   const trends = variations(baseline ?? null, data);
   const since = baseline ? formatDay(baseline.at) : '';
   const names = data.products[0]?.sources.map((s) => s.source) ?? [];
@@ -126,7 +127,7 @@ function comparisonPanel(data, onSwap, baseline) {
     }), el('td'), el('td'));
   const mixed = new Set(Object.values(coverage)).size > 1;
   return el('section', { className: 'panel detail' },
-    el('div', { className: 'panel-h' }, el('h2', { textContent: 'Comparação por produto' })),
+    el('div', { className: 'panel-h' }, el('h2', { textContent: 'Comparação por produto' }), actions),
     el('div', { className: 'scroll' }, el('table', {}, el('thead', {}, head), el('tbody', {}, ...rows), el('tfoot', {}, foot))),
     el('p', { className: 'legend', textContent: `Verde: menor preço do produto, já ajustado ao tamanho pedido. "Incerto": confira o item; ele fica fora da média e da cesta.${mixed ? ' Mercados com menos itens têm total menor por cobrir menos produtos.' : ''}` }));
 }
@@ -244,15 +245,83 @@ const shopState = { mode: 'item', chosen: null };
 let currentData = null;
 
 let baseline = null;
+let sharedView = null; // { createdAt } quando a tela mostra um link compartilhado
 
-function render(data, { fresh = true, list } = {}) {
+function render(data, { fresh = true, list, shared = null } = {}) {
   if (fresh) {
     Object.assign(shopState, { mode: 'item', chosen: null });
-    baseline = readSaved()?.snapshot ?? null;
+    sharedView = shared;
+    baseline = shared ? null : readSaved()?.snapshot ?? null;
     if (list !== undefined) writeSaved({ list, snapshot: snapshot(data) });
   }
   currentData = data;
-  $('result').replaceChildren(...[comparisonPanel(data, openSwap, baseline), shoppingPanel(data)].filter(Boolean));
+  $('result').replaceChildren(...[
+    sharedView ? sharedBanner(data) : null,
+    comparisonPanel(data, openSwap, baseline, sharedView ? null : shareControls()),
+    shoppingPanel(data),
+  ].filter(Boolean));
+}
+
+/* ---------- Compartilhar o resultado ---------- */
+const formatWhen = (ms) => new Date(ms).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+
+function shareControls() {
+  const note = el('span', { className: 'muted-note' });
+  const button = el('button', { type: 'button', className: 'btn', textContent: 'Compartilhar' });
+  button.addEventListener('click', async () => {
+    if (!currentData) return;
+    button.disabled = true;
+    note.textContent = '';
+    try {
+      const res = await fetch('/api/share', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(toShareBody(currentData)) });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `erro ${res.status}`);
+      const { id, expiresAt } = await res.json();
+      const url = shareUrl(location.origin, id);
+      const validUntil = new Date(expiresAt).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+      if (navigator.share) {
+        try {
+          await navigator.share({ title: 'Cestimo', text: 'Comparação de preços de supermercados', url });
+          note.textContent = `Link vale até ${validUntil}.`;
+        } catch (e) {
+          if (e?.name !== 'AbortError') throw e;
+        }
+      } else {
+        await copyText(url);
+        note.textContent = `Link copiado. Vale até ${validUntil}.`;
+      }
+    } catch (e) {
+      note.textContent = `Não foi possível gerar o link: ${e.message}`;
+    } finally {
+      button.disabled = false;
+    }
+  });
+  return el('div', { className: 'no-print', style: 'display:flex;gap:10px;align-items:center' }, note, button);
+}
+
+function sharedBanner(data) {
+  const again = el('button', { type: 'button', className: 'btn', textContent: 'Comparar de novo com preços de hoje' });
+  again.addEventListener('click', () => {
+    $('list').value = data.products.map((p) => p.query).join('\n');
+    history.replaceState(null, '', location.pathname);
+    compareNow();
+  });
+  return el('div', { className: 'note shared no-print' },
+    el('span', { textContent: `Resultado compartilhado, com os preços de ${formatWhen(sharedView.createdAt)}. Os preços podem ter mudado desde então. ` }), again);
+}
+
+async function loadShared(id) {
+  setBusy(true, 'Abrindo…');
+  $('status').textContent = '';
+  try {
+    const res = await fetch(`/api/share/${id}`);
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error ?? `erro ${res.status}`);
+    render(body.result, { shared: { createdAt: body.createdAt } });
+  } catch (e) {
+    $('status').textContent = `Não foi possível abrir o link: ${e.message}`;
+  } finally {
+    setBusy(false);
+  }
 }
 
 /* ---------- Trocar o item escolhido ---------- */
@@ -432,3 +501,7 @@ if (savedJob) {
   $('list').value = savedJob.list;
   followJob(savedJob);
 }
+
+// Link compartilhado (#r=...): mostra o resultado congelado em vez de uma tela vazia.
+const sharedId = parseShareHash(location.hash);
+if (sharedId && !savedJob) loadShared(sharedId);
