@@ -25,6 +25,8 @@ services:
     init: true
     shm_size: "1gb"
     mem_limit: 1536m
+    labels:
+      logging: cestimo                    # só containers com este rótulo têm os logs lidos pelo Alloy (perfil monitoring)
     logging:
       driver: json-file
       options: { max-size: "10m", max-file: "5" }   # logs com rotação (sem IP; ver privacidade)
@@ -32,6 +34,8 @@ services:
   caddy:
     image: caddy:2
     restart: unless-stopped
+    labels:
+      logging: cestimo
     ports:
       - "80:80"
       - "443:443"
@@ -84,6 +88,35 @@ services:
     mem_limit: 384m
     depends_on:
       - prometheus
+      - loki
+
+  # ---- Logs no Grafana (perfil monitoring): Loki guarda por 14 dias; Alloy lê os logs dos containers do Cestimo.
+  loki:
+    image: grafana/loki:3.7.10
+    profiles: ["monitoring"]
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/loki.yml"]
+    volumes:
+      - ./monitoring/loki.yml:/etc/loki/loki.yml:ro
+      - loki_data:/loki
+    mem_limit: 256m
+
+  alloy:
+    image: grafana/alloy:v1.22.0
+    profiles: ["monitoring"]
+    restart: unless-stopped
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    volumes:
+      - ./monitoring/alloy.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro   # só para descobrir containers e ler seus logs
+      - alloy_data:/var/lib/alloy/data
+    mem_limit: 192m
+    depends_on:
+      - loki
 
 volumes:
   cestimo_data:
@@ -91,3 +124,5 @@ volumes:
   caddy_config:
   prometheus_data:
   grafana_data:
+  loki_data:
+  alloy_data:

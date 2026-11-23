@@ -156,7 +156,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(ui_events_total{event=~\"copy_.*\"})",
+          "expr": "sum(ui_events_total{event=~\"copy_.*\"}) or vector(0)",
           "datasource": {
             "type": "prometheus",
             "uid": "prom"
@@ -198,7 +198,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(ui_events_total{event=~\"print_.*\"})",
+          "expr": "sum(ui_events_total{event=~\"print_.*\"}) or vector(0)",
           "datasource": {
             "type": "prometheus",
             "uid": "prom"
@@ -397,7 +397,9 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "percentunit"
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1
         },
         "overrides": []
       }
@@ -729,6 +731,180 @@
         },
         "colorMode": "none",
         "graphMode": "none"
+      }
+    },
+    {
+      "id": 19,
+      "type": "logs",
+      "title": "Logs do app (ao vivo)",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 44,
+        "w": 24,
+        "h": 10
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{service=\"cestimo\"} | json | event != \"\"",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "queryType": "range"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": true,
+        "enableLogDetails": true,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      }
+    },
+    {
+      "id": 20,
+      "type": "logs",
+      "title": "Avisos e erros",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 54,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{service=\"cestimo\", level=~\"warn|error|fatal\"}",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "queryType": "range"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": true,
+        "enableLogDetails": true,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      }
+    },
+    {
+      "id": 21,
+      "type": "logs",
+      "title": "Comparações: o que as pessoas buscam",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 54,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{service=\"cestimo\", event=\"compare\"}",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "queryType": "range"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": true,
+        "enableLogDetails": true,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      }
+    },
+    {
+      "id": 22,
+      "type": "timeseries",
+      "title": "Linhas de log por tipo (a cada 5 min)",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 62,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (event) (count_over_time({service=\"cestimo\", event!=\"\"}[5m]))",
+          "legendFormat": "{{event}}",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 23,
+      "type": "timeseries",
+      "title": "Buscas nos mercados, por resultado (vistas no log)",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 62,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (result) (count_over_time({service=\"cestimo\", event=\"source_search\"} | json [5m]))",
+          "legendFormat": "{{result}}",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
       }
     }
   ]

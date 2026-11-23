@@ -1,0 +1,65 @@
+// Grafana Alloy: lê os logs dos containers do Cestimo e envia ao Loki.
+// Só entram containers com o rótulo  logging=cestimo  (veja docker-compose.prod.yml).
+// Containers de outros projetos na mesma máquina NÃO são lidos.
+
+discovery.docker "cestimo" {
+  host = "unix:///var/run/docker.sock"
+
+  filter {
+    name   = "label"
+    values = ["logging=cestimo"]
+  }
+}
+
+discovery.relabel "cestimo" {
+  targets = discovery.docker.cestimo.targets
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label  = "service"
+  }
+}
+
+loki.source.docker "cestimo" {
+  host       = "unix:///var/run/docker.sock"
+  targets    = discovery.relabel.cestimo.output
+  forward_to = [loki.process.cestimo.receiver]
+}
+
+loki.process "cestimo" {
+  // O app escreve JSON (pino): extrai o nível e o tipo de evento para virarem filtros.
+  stage.json {
+    expressions = {
+      level = "level",
+      event = "event",
+    }
+  }
+
+  // pino usa números (30 = info, 40 = warn, 50 = error, 60 = fatal).
+  stage.template {
+    source   = "level_name"
+    template = `{{ if not .level }}outro{{ else if eq .level "30" }}info{{ else if eq .level "40" }}warn{{ else if eq .level "50" }}error{{ else if eq .level "60" }}fatal{{ else if eq .level "20" }}debug{{ else }}{{ .level }}{{ end }}`
+  }
+
+  // Poucos valores possíveis, então são seguros como rótulos. O resto (mercado, produtos…) fica na linha.
+  stage.labels {
+    values = {
+      level = "level_name",
+      event = "event",
+    }
+  }
+
+  forward_to = [loki.write.local.receiver]
+}
+
+loki.write "local" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

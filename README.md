@@ -226,42 +226,32 @@ Os números ficam gravados em disco (`DATA_DIR`, padrão `./data`; no Docker, o 
 {"event":"compare","items":4,"seconds":18.2,"queries":["arroz tio joão 5kg","ovos 30un"]}
 ```
 
-### Gráficos históricos (opcional): Prometheus + Grafana
+### Gráficos e logs (opcional): Prometheus, Loki e Grafana
 
-O painel `/admin` já mostra os números de hoje e dos últimos 14 dias. Para histórico longo (90 dias), alertas e gráficos livres, ative o perfil `monitoring`:
+O painel `/admin` já mostra os números de hoje e dos últimos 14 dias. Para histórico longo (90 dias), alertas, gráficos livres e **logs pesquisáveis**, ative o perfil `monitoring`:
 
 ```bash
 # no .env: defina GRAFANA_PASSWORD
 docker compose -f docker-compose.prod.yml --profile monitoring up -d
 ```
 
-O Grafana abre em `https://seu-dominio/grafana/` (usuário `admin`) já com o painel **Cestimo · visão geral** (visitas, comparações, cópias, economia, falhas e tempo por mercado, cache, recusas). Os dois serviços usam ~400 MB cada no limite; pense nisso ao escolher o servidor.
+O Grafana abre em `https://seu-dominio/grafana/` (usuário `admin`) já com o painel **Cestimo · visão geral**:
+- **Números** (Prometheus, 90 dias): visitas, comparações, cópias, economia, aparelhos, falhas e tempo por mercado, cache, recusas.
+- **Logs** (Loki, 14 dias): logs ao vivo do app, avisos e erros, o que as pessoas buscam e as buscas por mercado vistas no log.
 
-> Testado de ponta a ponta com Docker: o Prometheus coleta o app (`/metrics`, com a senha do `.env`), o Grafana carrega a fonte de dados e o painel sozinhos, e as 14 consultas do painel foram validadas no Prometheus. Os gráficos por hora só preenchem depois de alguns minutos de coleta.
+Para explorar à vontade, abra **Explore → Loki**. Exemplos:
 
-## Publicar como serviço público
+```logql
+{service="cestimo", event="compare"}                       # comparações e produtos buscados
+{service="cestimo", event="source_search"} | json | result="erro"     # buscas que falharam, por mercado
+{service="cestimo", level=~"warn|error|fatal"}             # avisos e erros
+```
 
-Pré-requisitos: um servidor Linux com **2 GB de RAM ou mais** (o Chromium consome memória), Docker com Compose e um **domínio** que você controla.
+**Como funciona e o que é lido:** o **Alloy** lê os logs apenas dos containers com o rótulo `logging=cestimo` (o app e o Caddy) e os envia ao **Loki**. Containers de outros projetos na mesma máquina **não são lidos**. Os logs do app não têm IP nem cabeçalhos. O Alloy precisa de acesso somente leitura ao socket do Docker para descobrir os containers.
 
-1. **Aponte o domínio** (registro `A`) para o IP do servidor.
-2. No servidor: `git clone <seu-repositorio> && cd <pasta>`.
-3. `cp .env.example .env` e preencha `DOMAIN` e `METRICS_TOKEN` (gere com `openssl rand -base64 24`).
-4. Ajuste `config/markets.json` para a sua cidade ([passo a passo](#como-trocar-de-cidade-passo-a-passo)) e rode `npm run markets:check` ou o equivalente no container.
-5. `docker compose -f docker-compose.prod.yml up -d --build`.
+Memória aproximada no limite configurado: Prometheus 384 MB, Grafana 384 MB, Loki 256 MB, Alloy 192 MB. Pense nisso ao escolher o servidor.
 
-O Caddy emite o certificado HTTPS sozinho. O app não fica exposto: só o Caddy responde nas portas 80 e 443.
-
-**O que já protege o serviço:** limite de **20 comparações por IP por hora**, no máximo **2 comparações ao mesmo tempo** (as demais recebem "tente em instantes"), 20 itens por lista, cache de 10 minutos, cabeçalhos de segurança (CSP, `X-Frame-Options`…), logs sem IP e senha nas métricas.
-
-**Checklist antes de divulgar:**
-
-- [ ] Domínio com HTTPS funcionando e `https://seu-dominio/healthz` respondendo.
-- [ ] `https://seu-dominio/admin` pede senha e mostra o painel.
-- [ ] Nome conferido: antes de usar o nome comercialmente, consulte a disponibilidade do domínio no Registro.br e da marca no INPI.
-- [ ] Você leu os termos de uso dos sites consultados. O serviço faz uma busca por consulta, com cache e limites; **não aumente a frequência** nem use para coleta em massa. Se um mercado pedir para parar, remova-o do `config/markets.json`.
-- [ ] Alarme simples: um monitor externo (ex.: UptimeRobot) em `/healthz`.
-
-**Operação do dia a dia:** `docker compose -f docker-compose.prod.yml logs -f cestimo` (logs), `... restart cestimo` (após editar `config/markets.json`) e `git pull && docker compose -f docker-compose.prod.yml up -d --build` (atualizar).
+> Testado de ponta a ponta com Docker: o Prometheus coleta o app, o Alloy entrega os logs ao Loki, o Grafana carrega as duas fontes de dados e o painel sozinho, e as consultas dos 23 painéis foram validadas. Os gráficos por hora só preenchem depois de alguns minutos de coleta.
 
 ### Rodando a stack completa no seu computador
 
