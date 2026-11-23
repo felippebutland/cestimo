@@ -559,3 +559,70 @@ describe('POST /api/recompute (depois que a pessoa troca um item)', () => {
   });
 });
 
+describe('links compartilhados (resultado congelado)', () => {
+  const m = (priceBRL: number, extra: Record<string, unknown> = {}) => ({
+    title: 'Item', priceBRL, equivalentBRL: priceBRL, sizeAdjusted: false, score: 1, uncertain: false, ...extra,
+  });
+  const row = (source: string, match?: ReturnType<typeof m>) => ({ source, status: 'ok', ...(match ? { match } : {}) });
+  const body = (extra: Record<string, unknown> = {}) => ({
+    products: [{ query: 'Arroz 5kg', sources: [row('A', m(10, { url: 'https://a.com/x', unitPriceBRL: 2, unit: 'kg' })), row('B', m(20))] }],
+    ...extra,
+  });
+  const share = (app: ReturnType<typeof buildApp>, payload: unknown) => app.inject({ method: 'POST', url: '/api/share', payload: payload as object });
+
+  it('cria o link e devolve o resultado com estatísticas recalculadas no servidor', async () => {
+    const app = buildApp({ sources: [fake] });
+    const created = await share(app, { ...body(), stats: [{ cheapest: { source: 'B', priceBRL: 1 } }] });
+    expect(created.statusCode).toBe(201);
+    const { id, expiresAt } = created.json();
+    expect(id).toMatch(/^[A-Za-z0-9_-]{12,}$/);
+    expect(expiresAt).toBeGreaterThan(Date.now());
+    const got = await app.inject({ method: 'GET', url: `/api/share/${id}` });
+    expect(got.statusCode).toBe(200);
+    const { result } = got.json();
+    expect(result.products[0].stats.cheapest).toEqual({ source: 'A', priceBRL: 10 });
+    expect(result.products[0].sources[0].match.url).toBe('https://a.com/x');
+    expect(result.basket.totals).toEqual({ A: 10, B: 20 });
+  });
+  it('link desconhecido responde 404', async () => {
+    expect((await buildApp({ sources: [fake] }).inject({ method: 'GET', url: '/api/share/naoexiste1234' })).statusCode).toBe(404);
+  });
+  it('link vencido responde 404', async () => {
+    const app = buildApp({ sources: [fake], shareTtlMs: 1 });
+    const { id } = (await share(app, body())).json();
+    await new Promise((r) => setTimeout(r, 5));
+    expect((await app.inject({ method: 'GET', url: `/api/share/${id}` })).statusCode).toBe(404);
+  });
+  it('dados inválidos ou link perigoso respondem 400 e nada é guardado', async () => {
+    const app = buildApp({ sources: [fake] });
+    const evil = { products: [{ query: 'a', sources: [row('A', m(10, { url: 'javascript:alert(1)' }))] }] };
+    expect((await share(app, evil)).statusCode).toBe(400);
+    expect((await share(app, { products: [] })).statusCode).toBe(400);
+  });
+  it('corpo grande demais responde 413', async () => {
+    const huge = { products: Array.from({ length: 20 }, () => ({ query: 'a', sources: [row('A', m(1, { title: 'x'.repeat(250) }))], pad: 'y'.repeat(20000) })) };
+    expect((await share(buildApp({ sources: [fake] }), huge)).statusCode).toBe(413);
+  });
+  it('tem limite de criação por IP', async () => {
+    const app = buildApp({ sources: [fake], shareRateLimit: { max: 2, windowMs: 60_000 } });
+    expect((await share(app, body())).statusCode).toBe(201);
+    expect((await share(app, body())).statusCode).toBe(201);
+    expect((await share(app, body())).statusCode).toBe(429);
+  });
+  it('criação e abertura viram eventos anônimos no painel', async () => {
+    const basic = { authorization: `Basic ${Buffer.from('admin:x').toString('base64')}` };
+    const app = buildApp({ sources: [fake], metricsToken: 'x' });
+    const { id } = (await share(app, body())).json();
+    await app.inject({ method: 'GET', url: `/api/share/${id}` });
+    const stats = (await app.inject({ method: 'GET', url: '/admin/stats', headers: basic })).json();
+    expect(stats.events).toMatchObject({ share_create: 1, share_open: 1 });
+  });
+  it('quem tem o cookie de opt-out não entra na contagem', async () => {
+    const basic = { authorization: `Basic ${Buffer.from('admin:x').toString('base64')}` };
+    const app = buildApp({ sources: [fake], metricsToken: 'x' });
+    await app.inject({ method: 'POST', url: '/api/share', payload: body(), headers: { cookie: 'cestimo_ignorar=1' } });
+    const stats = (await app.inject({ method: 'GET', url: '/admin/stats', headers: basic })).json();
+    expect(stats.events.share_create ?? 0).toBe(0);
+  });
+});
+

@@ -9,6 +9,7 @@ import { createDailyStats } from './dailyStats.js';
 import { buildSources, readMarketsFile } from './markets.js';
 import { createTopList } from './metrics.js';
 import { createStateFile, startAutosave } from './persistence.js';
+import { createShareStore } from './shares.js';
 
 const num = (name: string, fallback: number): number => {
   const n = Number(process.env[name]);
@@ -41,7 +42,13 @@ if (saved) {
 const saveState = (): void => {
   stateFile.save({ savedAt: new Date().toISOString(), metrics: metrics.snapshot(), top: top.snapshot(), daily: daily.snapshot() });
 };
-const stopAutosave = startAutosave(saveState, num('SAVE_EVERY_SECONDS', 30) * 1000);
+const shares = createShareStore({ ttlMs: num('SHARE_TTL_DAYS', 7) * 24 * 60 * 60 * 1000 });
+const sharesFile = createStateFile(join(process.env.DATA_DIR ?? './data', 'shares.json'));
+shares.restore(sharesFile.load());
+const saveShares = (): void => { sharesFile.save(shares.snapshot()); };
+const stopStatsAutosave = startAutosave(saveState, num('SAVE_EVERY_SECONDS', 30) * 1000);
+const stopSharesAutosave = startAutosave(saveShares, num('SAVE_EVERY_SECONDS', 30) * 1000);
+const stopAutosave = (): void => { stopStatsAutosave(); stopSharesAutosave(); };
 
 const sources = buildSources(markets).map((s) =>
   withCache(s, TEN_MINUTES, Date.now, {
@@ -58,6 +65,7 @@ const app = buildApp({
   metrics,
   top,
   daily,
+  shares,
   metricsToken: process.env.METRICS_TOKEN || undefined,
   rateLimit: { max: num('RATE_LIMIT_MAX', 20), windowMs: num('RATE_LIMIT_WINDOW_MIN', 60) * 60 * 1000 },
   maxConcurrent: num('MAX_CONCURRENT', 2),

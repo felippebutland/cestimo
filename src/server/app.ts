@@ -10,6 +10,7 @@ import { basicAuthOk, createGate, createRateLimiter } from './limits.js';
 import { createDailyStats, type DailyStats } from './dailyStats.js';
 import { createTopList, normalizeQuery, type Metrics } from './metrics.js';
 import { parseRecomputeBody } from './recomputeInput.js';
+import { createShareStore, type ShareStore } from './shares.js';
 
 export const MAX_ITEMS = 20;
 
@@ -33,6 +34,12 @@ export type AppDeps = {
   daily?: DailyStats;
   /** Máximo de comparações por IP na janela. Sem isto, não há limite. */
   rateLimit?: { max: number; windowMs: number };
+  /** Onde ficam os resultados dos links compartilhados; passe o seu para poder gravá-los em disco. */
+  shares?: ShareStore;
+  /** Por quanto tempo um link compartilhado vale (padrão: 7 dias). */
+  shareTtlMs?: number;
+  /** Limite de links criados por IP (padrão: 30 por hora). */
+  shareRateLimit?: { max: number; windowMs: number };
   /** Limite do recálculo depois de trocar um item (padrão: 600 por hora por IP). */
   recomputeRateLimit?: { max: number; windowMs: number };
   /** Comparações simultâneas aceitas; as demais recebem 503. */
@@ -326,6 +333,33 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       .catch(() => { job.status = 'error'; job.error = 'Não foi possível consultar os mercados agora. Tente de novo.'; })
       .finally(() => { job.finishedAt = Date.now(); admitted.leave(); });
     return reply.code(202).send({ id, total: job.total });
+  });
+
+  // Link compartilhado: guarda o resultado congelado (já validado e recalculado aqui) atrás de um id aleatório.
+  const shares = deps.shares ?? createShareStore({ ttlMs: deps.shareTtlMs });
+  const shareLimiter = createRateLimiter(deps.shareRateLimit ?? { max: 30, windowMs: 60 * 60 * 1000 });
+  const shareViewLimiter = createRateLimiter({ max: 600, windowMs: 60 * 60 * 1000 });
+
+  app.post('/api/share', { bodyLimit: 200_000 }, async (req, reply) => {
+    if (!shareLimiter.check(req.ip).allowed) return reply.code(429).send({ error: 'Muitos links criados seguidos. Tente de novo mais tarde.' });
+    const parsed = parseRecomputeBody(req.body, { display: true });
+    if (!parsed.ok) return reply.code(400).send({ error: parsed.error });
+    const { stats, basket } = recompute(parsed.products);
+    const result = {
+      products: parsed.products.map((p, i) => ({ query: p.query, sources: p.sources, stats: stats[i] })),
+      basket: { ...basket, totals: Object.fromEntries(basket.totals), coverage: Object.fromEntries(basket.coverage) },
+    };
+    const { id, expiresAt } = shares.put(result);
+    if (!isIgnored(req)) metrics.inc('ui_events_total', { event: 'share_create' });
+    return reply.code(201).send({ id, expiresAt });
+  });
+
+  app.get('/api/share/:id', async (req, reply) => {
+    if (!shareViewLimiter.check(req.ip).allowed) return reply.code(429).send({ error: 'Muitas consultas seguidas.' });
+    const found = shares.get((req.params as { id: string }).id);
+    if (!found) return reply.code(404).send({ error: 'Link não encontrado ou expirado. Peça para gerar outro.' });
+    if (!isIgnored(req)) metrics.inc('ui_events_total', { event: 'share_open' });
+    return reply.header('cache-control', 'no-store').send(found);
   });
 
   // Recalcula médias e cesta com os itens que a pessoa escolheu. Não consulta mercados nem guarda nada.

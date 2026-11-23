@@ -46,3 +46,41 @@ describe('parseRecomputeBody', () => {
     if (!r.ok) expect(r.error.length).toBeGreaterThan(5);
   });
 });
+
+describe('parseRecomputeBody em modo exibição (link compartilhado)', () => {
+  const full = (over: Record<string, unknown> = {}) => match({ unitPriceBRL: 4.5, unit: 'kg', url: 'https://loja.com/p/1', ...over });
+  const parse = (m: unknown, query: unknown = 'Arroz 5kg') =>
+    parseRecomputeBody({ products: [{ query, sources: [ok('ok', m)] }] }, { display: true });
+
+  it('mantém consulta, link, preço por unidade e unidade', () => {
+    const r = parse(full());
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.products[0]!.query).toBe('Arroz 5kg');
+      expect(r.products[0]!.sources[0]!.match).toMatchObject({ unitPriceBRL: 4.5, unit: 'kg', url: 'https://loja.com/p/1' });
+    }
+  });
+  it('sem o modo, link e unidade continuam sendo descartados', () => {
+    const r = parseRecomputeBody({ products: [{ query: 'a', sources: [ok('ok', full())] }] });
+    expect(r.ok && r.products[0]!.sources[0]!.match).toEqual(match());
+  });
+  it.each([
+    ['javascript:alert(1)'],
+    ['data:text/html,<script>1</script>'],
+    ['//evil.com/x'],
+    ['ftp://x.com/a'],
+    ['https://' + 'a'.repeat(600)],
+  ])('rejeita link %s', (url) => {
+    expect(parse(full({ url })).ok).toBe(false);
+  });
+  it('rejeita unidade fora de kg/L/un e preço por unidade inválido', () => {
+    expect(parse(full({ unit: 'tonelada' })).ok).toBe(false);
+    expect(parse(full({ unitPriceBRL: -2 })).ok).toBe(false);
+  });
+  it('rejeita consulta ausente, vazia ou enorme', () => {
+    expect(parse(full(), null).ok).toBe(false);
+    expect(parse(full(), '  ').ok).toBe(false);
+    expect(parse(full(), 'x'.repeat(200)).ok).toBe(false);
+  });
+});
+
