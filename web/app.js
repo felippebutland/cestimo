@@ -1,6 +1,7 @@
 import { formatBRL, formatPct } from './format.js';
 import { JobExpiredError, submitJob, waitForJob } from './jobs.js';
 import { installMode, isStandalone, pwaOpenOncePerSession } from './install.js';
+import { rankSources, rankTotals } from './mobileOrder.js';
 import { parsePushState, pushMode, queriesToWatch, urlBase64ToUint8Array } from './push.js';
 import { sparklinePath, summarize } from './trend.js';
 import { formatDay, parseSaved, snapshot, variations } from './history.js';
@@ -91,7 +92,8 @@ function cell(s, isBest, onSwap) {
   const m = s.match;
   td.append(el('div', { className: 'px', textContent: formatBRL(m.priceBRL) }), el('div', { className: 'sub', title: m.title, textContent: m.title }));
   const extra = [m.unitPriceBRL != null ? `${formatBRL(m.unitPriceBRL)}/${m.unit}` : null, m.sizeAdjusted ? `≈ ${formatBRL(m.equivalentBRL)} no tamanho pedido` : null].filter(Boolean);
-  if (extra.length) td.append(el('div', { className: 'sub', textContent: extra.join(' · ') }));
+  // 'unit' = só o preço por kg/L (cabe ao lado do título no celular); 'long' = tem aviso de tamanho diferente (linha própria)
+  if (extra.length) td.append(el('div', { className: `sub ${m.sizeAdjusted ? 'long' : 'unit'}`, textContent: extra.join(' · ') }));
   if (m.chosenByUser) td.append(el('div', { className: 'flag chosen', textContent: 'Escolhido por você' }));
   else if (m.uncertain) td.append(el('div', { className: 'flag', textContent: 'Incerto, confira', title: s.reason ?? 'Fora da média e da cesta' }));
   if (hasOptions) td.append(swapButton(m.chosenByUser ? 'Trocar de novo' : 'Não é esse?', onSwap));
@@ -136,16 +138,21 @@ function comparisonPanel(data, onSwap, baseline, actions, series) {
     el('th', { textContent: 'Média' }), el('th', { textContent: 'Diferença' }));
   const rows = data.products.map((p, pi) => {
     const best = p.stats?.cheapest.source;
+    const rank = rankSources(p.sources);
+    // data-label e --o só valem no celular, onde cada produto vira um cartão com um mercado por linha (ver o CSS).
+    const labeled = (td, label, order) => { td.dataset.label = label; td.style.setProperty('--o', String(order)); return td; };
     return el('tr', {}, el('td', { className: 'prod' }, p.query, trendLine(trends[pi], since), historyLine(series?.[pi])),
-      ...p.sources.map((s) => cell(s, s.source === best, () => onSwap(pi, s.source))),
-      el('td', { className: 'cell' }, el('span', { className: 'px', textContent: p.stats ? formatBRL(p.stats.averageBRL) : '—' })),
-      el('td', { className: 'cell' }, el('span', { className: 'px', textContent: p.stats ? formatBRL(p.stats.diffBRL) : '—' }),
-        p.stats ? el('div', { className: 'sub', textContent: formatPct(p.stats.diffPct) }) : null));
+      ...p.sources.map((s, si) => labeled(cell(s, s.source === best, () => onSwap(pi, s.source)), s.source, rank[si])),
+      labeled(el('td', { className: 'cell summary' }, el('span', { className: 'px', textContent: p.stats ? formatBRL(p.stats.averageBRL) : '—' })), 'Média', 90),
+      labeled(el('td', { className: 'cell summary' }, el('span', { className: 'px', textContent: p.stats ? `${formatBRL(p.stats.diffBRL)}${' '}(${formatPct(p.stats.diffPct)})` : '—' })), 'Diferença', 91));
   });
   const { totals, coverage, total, cheapestSource } = data.basket;
+  const totalRank = rankTotals(names, totals, cheapestSource);
   const foot = el('tr', {}, el('td', { className: 'prod', textContent: 'Total da cesta' }),
-    ...names.map((n) => {
+    ...names.map((n, ni) => {
       const td = el('td', { className: `cell${n === cheapestSource ? ' best' : ''}` });
+      td.dataset.label = n;
+      td.style.setProperty('--o', String(totalRank[ni]));
       if (totals[n] != null) td.append(el('div', { className: 'px', textContent: formatBRL(totals[n]) }), el('div', { className: 'sub', textContent: `${coverage[n]} de ${total} itens` }));
       else td.append(el('span', { className: 'none', textContent: '—' }));
       return td;
@@ -684,3 +691,10 @@ let sessionStore = { getItem: () => null, setItem: () => {} };
 try { sessionStore = sessionStorage; } catch { /* sem armazenamento */ }
 if (pwaOpenOncePerSession(isStandalone({ displayModeStandalone: matchMedia('(display-mode: standalone)').matches, navigatorStandalone: navigator.standalone }), sessionStore)) track('pwa_open');
 
+
+/* ---------- Voltar ao topo (listas longas no celular) ---------- */
+const toTop = $('to-top');
+const syncToTop = () => { toTop.hidden = window.scrollY < 700; };
+window.addEventListener('scroll', syncToTop, { passive: true });
+toTop.addEventListener('click', () => window.scrollTo({ top: 0, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }));
+syncToTop();
