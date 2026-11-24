@@ -50,7 +50,7 @@ function renderCards(t) {
   );
 }
 
-function barChart(title, days, key, format = int) {
+function barChart(title, days, key, format = int, summary = null) {
   const values = days.map((d) => d.values[key] ?? 0);
   const max = Math.max(1, ...values);
   const w = 280, h = 110, pad = 14, bw = w / values.length;
@@ -81,7 +81,7 @@ function barChart(title, days, key, format = int) {
     }
   });
   const total = values.reduce((a, b) => a + b, 0);
-  return el('div', { className: 'panel chart' }, el('h3', {}, title, el('b', { textContent: format(total) })), svg);
+  return el('div', { className: 'panel chart' }, el('h3', {}, title, el('b', { textContent: summary ? summary(values) : format(total) })), svg);
 }
 
 function renderCharts(days) {
@@ -91,6 +91,13 @@ function renderCharts(days) {
     barChart('Itens buscados', days, 'items'),
     barChart('Listas copiadas', days, 'copy'),
     barChart('Economia estimada', days, 'savings', brl),
+    // acompanha o efeito do onboarding (boas-vindas e "Como funciona", no ar desde 24/11): o valor no título é o do período todo
+    barChart('Comparações por visita', days.map((d) => ({ date: d.date, values: { ratio: (d.values.page_view ?? 0) ? (d.values.compare ?? 0) / d.values.page_view : 0 } })), 'ratio',
+      (n) => dec(n, 2), () => {
+        const visits = days.reduce((t, d) => t + (d.values.page_view ?? 0), 0);
+        const compares = days.reduce((t, d) => t + (d.values.compare ?? 0), 0);
+        return visits ? dec(compares / visits, 2) : '—';
+      }),
   );
 }
 

@@ -225,7 +225,7 @@ function comparisonPanel(data, onSwap, baseline, actions, series, market = null)
     const rank = rankSources(shown);
     // data-label e --o só valem no celular, onde cada produto vira um cartão com um mercado por linha (ver o CSS).
     const labeled = (td, label, order) => { td.dataset.label = label; td.style.setProperty('--o', String(order)); return td; };
-    return el('tr', {}, el('td', { className: 'prod' }, p.query, trendLine(trends[pi], since), historyLine(series?.[pi]), cmedLine(p.cmed), trackButton(p)),
+    return el('tr', {}, el('td', { className: 'prod' }, el('span', { className: 'prod-name', textContent: p.query }), trendLine(trends[pi], since), historyLine(series?.[pi]), cmedLine(p.cmed), trackButton(p)),
       ...shown.map((s, si) => labeled(cell(s, s.source === best, () => onSwap(pi, s.source)), s.source, rank[si])),
       labeled(el('td', { className: 'cell summary' }, el('span', { className: 'px', textContent: p.stats ? formatBRL(p.stats.averageBRL) : '—' })), 'Média dos mercados', 90),
       labeled(el('td', { className: 'cell summary' }, el('span', { className: 'px', textContent: p.stats ? `${formatBRL(p.stats.diffBRL)}${' '}(${formatPct(p.stats.diffPct)})` : '—' })), 'Mais barato × mais caro', 91));

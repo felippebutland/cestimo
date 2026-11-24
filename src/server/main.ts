@@ -104,7 +104,7 @@ const pharmacySources = rawPharmacies.map(wrap);
 const dataDir = process.env.DATA_DIR ?? './data';
 const backupNow = (): void => {
   try {
-    const { dir } = runBackup({ dataDir, history, now: Date.now, utcOffsetMinutes, keep: num('BACKUP_KEEP_DAYS', 14) });
+    const { dir } = runBackup({ dataDir, history, ...(authStore ? { auth: authStore } : {}), now: Date.now, utcOffsetMinutes, keep: num('BACKUP_KEEP_DAYS', 14) });
     app.log.info({ event: 'backup', dir });
   } catch (e) {
     app.log.warn({ event: 'backup_error', message: e instanceof Error ? e.message : String(e) });

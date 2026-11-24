@@ -5,6 +5,8 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { createHistoryStore } from './history.js';
 import { backupsToRemove, runBackup } from './backup.js';
+import { createAuthStore } from './auth/users.js';
+import { createPanelStore } from './auth/panelStore.js';
 
 describe('backupsToRemove', () => {
   it('mantém os N dias mais recentes e remove os mais antigos', () => {
@@ -63,6 +65,32 @@ describe('runBackup', () => {
     const history = createHistoryStore({ path: join(data, 'history.db'), now: () => DAY });
     for (const d of [20, 21, 22, 23]) runBackup({ dataDir: data, history, now: () => Date.UTC(2026, 10, d, 15), utcOffsetMinutes: -180, keep: 2 });
     expect(readdirSync(join(data, 'backups')).sort()).toEqual(['2026-11-22', '2026-11-23']);
+    history.close();
+  });
+
+  it('copia também o banco das contas (usuários, listas salvas e produtos acompanhados), consistente', () => {
+    const history = createHistoryStore({ path: join(data, 'history.db'), now: () => DAY });
+    const auth = createAuthStore({ path: join(data, 'auth.db'), now: () => DAY });
+    const u = auth.upsertUser({ sub: 'g1', email: 'a@x.com', name: 'Ana' });
+    const panel = createPanelStore(auth.db, () => DAY);
+    panel.saveList(u.id, { name: 'Mês', category: 'mercados', body: 'Arroz 5kg' });
+    panel.track(u.id, { query: 'Leite 1L', category: 'mercados' });
+
+    const out = runBackup({ dataDir: data, history, auth, now: () => DAY, utcOffsetMinutes: -180, keep: 14 });
+
+    const copy = new DatabaseSync(join(out.dir, 'auth.db'));
+    expect((copy.prepare('SELECT COUNT(*) AS n FROM users').get() as { n: number }).n).toBe(1);
+    expect((copy.prepare('SELECT COUNT(*) AS n FROM saved_lists').get() as { n: number }).n).toBe(1);
+    expect((copy.prepare('SELECT COUNT(*) AS n FROM tracked_products').get() as { n: number }).n).toBe(1);
+    copy.close();
+    auth.close();
+    history.close();
+  });
+
+  it('sem login configurado, o backup segue sem o auth.db', () => {
+    const history = createHistoryStore({ path: join(data, 'history.db'), now: () => DAY });
+    const out = runBackup({ dataDir: data, history, now: () => DAY, utcOffsetMinutes: -180, keep: 14 });
+    expect(existsSync(join(out.dir, 'auth.db'))).toBe(false);
     history.close();
   });
 });

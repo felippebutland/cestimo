@@ -315,7 +315,7 @@ Se o servidor está atrás de um roteador, em casa ou sem IP fixo, dá para usar
 | `SAVE_EVERY_SECONDS` | `30` | de quanto em quanto tempo gravar em disco |
 | `SHARE_TTL_DAYS` | `7` | por quantos dias um link de "Compartilhar" continua valendo |
 | `HISTORY_KEEP_DAYS` | `365` | por quantos dias o histórico de preços fica guardado (arquivo `history.db` em `DATA_DIR`) |
-| `BACKUP_KEEP_DAYS` | `14` | quantos backups diários ficam em `DATA_DIR/backups` (histórico, estatísticas e links) |
+| `BACKUP_KEEP_DAYS` | `14` | quantos backups diários ficam em `DATA_DIR/backups` (histórico, contas, estatísticas e links) |
 | `BROWSER_PAGES` | `6` | páginas do Chromium abertas ao mesmo tempo (todas as lojas juntas). Medido numa lista de 8 itens (2 rodadas): 3 páginas = 40 s; 6, 9 e 12 ficam todas entre 21 e 30 s, sem ganho claro acima de 6. O pico real de memória sobe ~60 MB por página: ~1,1 GB com 6, ~1,3 GB com 9 e ~1,5 GB com 12 (o limite do container é 1,5 GB) |
 | `SOURCE_CONCURRENCY` | `3` | buscas simultâneas em cada loja; evita sobrecarregar um site com listas grandes |
 | `PROBE_EVERY_MIN` | `60` | de quantos em quantos minutos o app faz uma busca de teste em cada mercado (`0` desliga) |
@@ -378,7 +378,7 @@ Em resumo: você pode usar, estudar, modificar e distribuir o código, inclusive
 
 ## Backup e teste automático
 
-- **Backup:** o app grava todo dia, em `DATA_DIR/backups/AAAA-MM-DD/`, uma cópia consistente do histórico de preços (`history.db`), das estatísticas (`stats.json`) e dos links (`shares.json`). Essa pasta fica dentro do volume do Docker, então o `scripts/backup.sh` leva uma cópia para fora (padrão `~/Backups/cestimo`, ou `CESTIMO_BACKUP_DIR`; aponte para o iCloud Drive para sair do disco). Para agendar no macOS: `cp scripts/com.cestimo.backup.plist ~/Library/LaunchAgents/ && launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.cestimo.backup.plist` (roda às 4h15). Para restaurar, copie o `history.db` do dia para o volume (`/app/data/history.db`) com o app parado.
+- **Backup:** o app grava todo dia, em `DATA_DIR/backups/AAAA-MM-DD/`, uma cópia consistente do histórico de preços (`history.db`), das contas com listas salvas e produtos acompanhados (`auth.db`, quando o login está ligado), das estatísticas (`stats.json`), dos links (`shares.json`) e dos avisos (`push.json`, `vapid.json`). Essa pasta fica dentro do volume do Docker, então o `scripts/backup.sh` leva uma cópia para fora (padrão `~/Backups/cestimo`, ou `CESTIMO_BACKUP_DIR`; aponte para o iCloud Drive para sair do disco). Para agendar no macOS: `cp scripts/com.cestimo.backup.plist ~/Library/LaunchAgents/ && launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.cestimo.backup.plist` (roda às 4h15). Para restaurar, copie o `history.db` (e o `auth.db`) do dia para o volume (`/app/data/`) com o app parado.
 - **Teste automático dos mercados:** a cada hora o app busca `PROBE_TERM` em cada mercado, sem cache e uma loja por vez, e conta o resultado em `source_probe_total{source,result}`. O alerta *Mercado falhou no teste automático* dispara quando 90% ou mais dos testes das últimas 3 h falharam.
 
 ## Aviso de queda de preço (notificação)
@@ -411,4 +411,4 @@ Com `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` e `PUBLIC_URL`, o cabeçalho most
 - **Preços que acompanho:** botão "☆ Acompanhar preço" em cada produto do resultado (até 20 por conta). O painel mostra o menor preço, onde está, a variação desde o início, um mini gráfico e o selo "Caiu X%" (queda de 5% ou mais). Uma rotina diária consulta cada produto acompanhado (iguais de contas diferentes, uma vez só) e grava no histórico. Na aba "Preços que acompanho" a pessoa pode ativar o aviso neste aparelho (Web Push, até 5 por conta): quando o menor preço de hoje cai 5% ou mais em relação ao anterior, vai uma notificação por pessoa (vários produtos viram um resumo), no máximo uma vez por dia por produto. Tocar na notificação abre o painel.
 - **Excluir minha conta:** apaga listas, produtos, sessões, nome e e-mail.
 
-Tudo vale só para quem entra; sem login o app funciona como sempre. Os dados ficam em `DATA_DIR/auth.db`.
+Tudo vale só para quem entra; sem login o app funciona como sempre. Os dados ficam em `DATA_DIR/auth.db`, que entra no backup diário.

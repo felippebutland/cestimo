@@ -111,6 +111,10 @@ export function createAuthStore(opts: { path: string; now?: () => number; sessio
         throw e;
       }
     },
+    /** Cópia consistente do banco em um novo arquivo (seguro com o app em uso). O destino não pode existir. */
+    backupTo(path: string): void {
+      db.prepare('VACUUM INTO ?').run(path);
+    },
     /** Banco compartilhado com o painel (listas e acompanhados). */
     db,
     close(): void {

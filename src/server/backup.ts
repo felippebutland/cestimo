@@ -8,18 +8,19 @@ const DAY_DIR = /^\d{4}-\d{2}-\d{2}$/;
 export const backupsToRemove = (names: string[], keep: number): string[] =>
   names.filter((n) => DAY_DIR.test(n)).sort().reverse().slice(Math.max(0, keep));
 
-export type BackupOptions = { dataDir: string; history: Pick<HistoryStore, 'backupTo'>; now: () => number; utcOffsetMinutes: number; keep: number };
+export type BackupOptions = { dataDir: string; history: Pick<HistoryStore, 'backupTo'>; /** Banco das contas (login); sem ele, o backup não inclui contas. */ auth?: { backupTo(path: string): void }; now: () => number; utcOffsetMinutes: number; keep: number };
 
 /**
- * Backup do dia em `<dataDir>/backups/AAAA-MM-DD/`: histórico de preços (cópia consistente), estatísticas e links.
+ * Backup do dia em `<dataDir>/backups/AAAA-MM-DD/`: histórico de preços e contas (cópias consistentes), estatísticas, links e avisos.
  * Rodar de novo no mesmo dia substitui o backup do dia.
  */
-export function runBackup({ dataDir, history, now, utcOffsetMinutes, keep }: BackupOptions): { dir: string } {
+export function runBackup({ dataDir, history, auth, now, utcOffsetMinutes, keep }: BackupOptions): { dir: string } {
   const root = join(dataDir, 'backups');
   const dir = join(root, dayKey(now(), utcOffsetMinutes));
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(dir, { recursive: true });
   history.backupTo(join(dir, 'history.db'));
+  auth?.backupTo(join(dir, 'auth.db'));
   for (const file of ['stats.json', 'shares.json', 'push.json', 'vapid.json']) {
     const from = join(dataDir, file);
     if (existsSync(from)) copyFileSync(from, join(dir, file));

@@ -280,11 +280,21 @@
       thead { display: none; }
       tbody tr, tfoot tr { display: flex; flex-wrap: wrap; padding: 18px 16px 10px; border-bottom: 12px solid var(--bg); }
       td, tbody tr:last-child td { border: 0; padding: 0; }
-      th.prod, td.prod { position: static; border: 0; background: none; order: -1; flex: 0 0 100%; padding: 0 0 10px; font-size: 17px; line-height: 1.3; }
+      th.prod, td.prod { position: static; border: 0; background: none; order: -1; flex: 0 0 100%; padding: 0 0 12px; font-size: 17px; line-height: 1.3; }
+      td.prod .prod-name { display: block; font-size: 18px; font-weight: 650; letter-spacing: -.01em; margin-bottom: 6px; }
+      /* histórico: gráfico ao lado do texto (uma faixa só), em vez de empilhado */
+      td.prod .hist { display: grid; grid-template-columns: auto 1fr; column-gap: 10px; row-gap: 0; align-items: center; margin-top: 2px; font-size: 12.5px; font-weight: 400; }
+      td.prod .hist svg { grid-row: 1 / span 2; }
+      td.prod .trend, td.prod .sub.cmed { font-size: 12.5px; }
+      td.prod .track { margin-top: 10px; min-height: 34px; }
       /* linha de cima: mercado, "Não é esse?" e preço; linha de baixo: nome do item e preço por kg; aviso (tamanho diferente, incerto) só quando houver */
-      td.cell { order: var(--o, 0); flex: 0 0 calc(100% + 24px); box-sizing: border-box; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; column-gap: 10px; row-gap: 4px; padding: 12px 12px; margin: 0 -12px; border-radius: 8px; border-bottom: 1px solid var(--line-soft); overflow: visible; }
-      td.cell::before { content: attr(data-label); grid-column: 1; grid-row: 1; font-size: 13px; font-weight: 600; color: var(--muted); }
-      td.cell > .swap { grid-column: 2; grid-row: 1; justify-self: start; min-height: 36px; padding: 0 14px; margin: 0; font-size: 13px; white-space: nowrap; }
+      td.cell { order: var(--o, 0); flex: 0 0 calc(100% + 24px); box-sizing: border-box; display: grid; grid-template-columns: 6.5rem minmax(0, 1fr) auto; align-items: center; column-gap: 8px; row-gap: 4px; padding: 12px 12px; margin: 0 -12px; border-radius: 8px; border-bottom: 1px solid var(--line-soft); overflow: visible; }
+      td.cell::before { content: attr(data-label); grid-column: 1; grid-row: 1; font-size: 13.5px; font-weight: 600; line-height: 1.2; color: var(--muted); overflow-wrap: anywhere; }
+      /* "Não é esse?": ação secundária, só texto (sem caixa) para não competir com o mercado e o preço; a área de toque continua grande */
+      td.cell > .swap { grid-column: 2; grid-row: 1; justify-self: start; min-height: 40px; padding: 0 10px; margin: 0 0 0 -4px; border: 0; border-radius: 8px; background: none; color: var(--muted); font-size: 12.5px; font-weight: 500; white-space: nowrap; }
+      td.cell > .swap::before { content: "⇄ "; }
+      td.cell > .swap:hover, td.cell > .swap:active { background: var(--line-soft); color: var(--text); }
+      td.best > .swap { color: var(--good); }
       td.cell > .px, td.cell > .none, td.cell > .flag.bad { grid-column: 3; grid-row: 1; justify-self: end; text-align: right; }
       td.cell > .sub[title] { grid-column: 1 / 3; grid-row: 2; font-size: 12.5px; white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
       td.cell > .sub.unit { grid-column: 3; grid-row: 2; justify-self: end; font-size: 12.5px; }
@@ -299,7 +309,7 @@
       tfoot tr { background: var(--panel); border-top: 1px solid var(--line); }
       td:empty { display: none; }
     }
-    .to-top { position: fixed; right: 14px; bottom: 16px; z-index: 5; border: 1px solid var(--line); background: var(--panel); color: var(--text); padding: 0 18px; min-height: 44px; border-radius: 999px; font: inherit; font-size: 14px; font-weight: 600; opacity: .96; box-shadow: 0 2px 10px rgba(0, 0, 0, .18); cursor: pointer; }
+    .to-top { position: fixed; right: 12px; bottom: 14px; z-index: 5; border: 1px solid var(--line); background: var(--panel); color: var(--text); padding: 0 14px; min-height: 40px; border-radius: 999px; font: inherit; font-size: 13px; font-weight: 600; opacity: .96; box-shadow: 0 2px 10px rgba(0, 0, 0, .18); cursor: pointer; }
     .to-top[hidden] { display: none; }
     .muted-note:empty { display: none; }
     @media (min-width: 900px) { .to-top { display: none; } }
@@ -324,12 +334,16 @@
       .menu { position: fixed; left: 14px; right: 14px; top: 64px; min-width: 0; }
       .welcome { flex-direction: column; }
       .welcome .btn { width: 100%; }
-      .picker, .filter { flex-direction: column; align-items: stretch; gap: 6px; }
-      .filter { padding: 10px 14px; }
-      .picker .select, .filter .select { width: 100%; }
+      .picker { flex-direction: column; align-items: stretch; gap: 6px; }
+      .filter { flex-direction: row; align-items: center; gap: 10px; padding: 10px 16px; }
+      .filter label { flex: none; }
+      .picker .select { width: 100%; }
+      .filter .select { flex: 1; min-width: 0; }
       .panel-h .btn { flex: 1 1 0; }
-      .panel-h > div > div { flex: 1 1 100%; justify-content: stretch; }
-      .panel-h > div > div .btn { width: 100%; }
+      .panel-h > div > div { flex: 1 1 0; min-width: 0; justify-content: stretch; }
+      .panel-h > div > div:first-child:not(:last-child) { flex: 3 1 0; }
+      .panel-h > div > div:last-child:not(:first-child) { flex: 2 1 0; }
+      .panel-h > div > div .btn { width: 100%; min-height: 42px; padding: 0 8px; font-size: 13px; white-space: nowrap; }
       .panel-h { padding: 16px; gap: 12px; }
       .panel-b { padding: 16px; }
       #result { gap: 24px; }

@@ -146,3 +146,107 @@ groups:
               expression: B
               conditions:
                 - evaluator: { type: gt, params: [0.9] }
+
+  - orgId: 1
+    name: cestimo-contas
+    folder: Cestimo
+    interval: 5m
+    rules:
+      # Login com Google falhando: 5 ou mais erros de login na última hora. Pode ser credencial/URI de redirecionamento errados ou o Google fora.
+      - uid: cestimo-login-erros
+        title: Erros de login com Google
+        condition: C
+        for: 10m
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ humanize $values.B.Value }} erros de login na última hora"
+          description: "Confira GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, PUBLIC_URL e o URI de redirecionamento no Google Cloud. Veja os eventos login_error no painel de contas."
+        data:
+          - refId: A
+            relativeTimeRange: { from: 3600, to: 0 }
+            datasourceUid: prom
+            model:
+              refId: A
+              instant: true
+              expr: >-
+                sum(increase(auth_events_total{event="login_error"}[1h]))
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [4] }
+
+      # Rotina diária dos acompanhados falhando: mais da metade dos produtos deram falha nas últimas 24 h (mínimo de 2 buscas).
+      - uid: cestimo-acompanhados-falha
+        title: Rotina dos preços acompanhados falhando
+        condition: C
+        for: 30m
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ humanizePercentage $values.B.Value }} das buscas dos produtos acompanhados falharam nas últimas 24 h"
+          description: "A rotina das 7h consulta os mercados para o painel das contas. Veja se algum mercado está fora do ar (alertas de mercado) e os logs tracked_refresh."
+        data:
+          - refId: A
+            relativeTimeRange: { from: 86400, to: 0 }
+            datasourceUid: prom
+            model:
+              refId: A
+              instant: true
+              expr: >-
+                (sum(increase(tracked_refresh_total{result="failed"}[24h])) / (sum(increase(tracked_refresh_total{result="failed"}[24h])) + sum(increase(tracked_refresh_total{result="refreshed"}[24h])))) and (sum(increase(tracked_refresh_total{result="failed"}[24h])) + sum(increase(tracked_refresh_total{result="refreshed"}[24h])) >= 2)
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [0.5] }
+
+      # Envio de notificação falhando: 3 ou mais falhas de envio (não conta aparelhos que sumiram) nas últimas 6 h.
+      - uid: cestimo-push-conta-falha
+        title: Aviso de queda (conta) falhando
+        condition: C
+        for: 15m
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ humanize $values.B.Value }} envios de aviso falharam nas últimas 6 h"
+          description: "Confira se vapid.json existe no volume e se o servidor alcança os serviços de push (FCM, Mozilla, Apple). Veja os logs tracked_notify."
+        data:
+          - refId: A
+            relativeTimeRange: { from: 21600, to: 0 }
+            datasourceUid: prom
+            model:
+              refId: A
+              instant: true
+              expr: >-
+                sum(increase(push_events_total{event="account_failed"}[6h]))
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [2] }

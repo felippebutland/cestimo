@@ -49,8 +49,9 @@ describe('layout do celular (guarda contra regressão)', () => {
   it('campo de texto com 16px no celular (abaixo disso o iPhone dá zoom ao digitar)', () => {
     expect(html).toMatch(/max-width: 600px\)[\s\S]*textarea \{ font-size: 16px/);
   });
-  it('seletores de mercado empilham no celular e ocupam a largura toda (texto longo não alarga a página)', () => {
-    expect(html).toMatch(/max-width: 600px\)[\s\S]*\.picker, \.filter \{ flex-direction: column/);
-    expect(html).toMatch(/\.picker \.select, \.filter \.select \{ width: 100%; \}/);
+  it('seletor "Mercado" da lista de compras empilha e ocupa a largura toda; o filtro do resultado fica numa linha, com o campo encolhendo (texto longo não alarga a página)', () => {
+    expect(html).toMatch(/max-width: 600px\)[\s\S]*\.picker \{ flex-direction: column/);
+    expect(html).toMatch(/\.picker \.select \{ width: 100%; \}/);
+    expect(html).toMatch(/\.filter \.select \{ flex: 1; min-width: 0; \}/);
   });
 });
