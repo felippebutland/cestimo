@@ -12,6 +12,7 @@ import { createStateFile, startAutosave } from './persistence.js';
 import { createHistoryStore, dayKey } from './history.js';
 import { runBackup } from './backup.js';
 import { runProbe } from './probe.js';
+import { withConcurrency } from '../sources/concurrency.js';
 import * as webpush from 'web-push';
 import { createSubscriptionStore } from './push/subscriptions.js';
 import { createSender, loadOrCreateVapid } from './push/sender.js';
@@ -74,7 +75,7 @@ const sendPush = createSender(vapid, (subscription, payload, options) => webpush
 
 const rawSources = buildSources(markets);
 const sources = rawSources.map((s) =>
-  withCache(s, TEN_MINUTES, Date.now, {
+  withCache(withConcurrency(s, num('SOURCE_CONCURRENCY', 3)), TEN_MINUTES, Date.now, {
     onHit: (source) => metrics.inc('cache_events_total', { source, event: 'hit' }),
     onMiss: (source) => metrics.inc('cache_events_total', { source, event: 'miss' }),
   }),

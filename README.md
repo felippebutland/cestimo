@@ -314,6 +314,8 @@ Se o servidor está atrás de um roteador, em casa ou sem IP fixo, dá para usar
 | `SHARE_TTL_DAYS` | `7` | por quantos dias um link de "Compartilhar" continua valendo |
 | `HISTORY_KEEP_DAYS` | `365` | por quantos dias o histórico de preços fica guardado (arquivo `history.db` em `DATA_DIR`) |
 | `BACKUP_KEEP_DAYS` | `14` | quantos backups diários ficam em `DATA_DIR/backups` (histórico, estatísticas e links) |
+| `BROWSER_PAGES` | `6` | páginas do Chromium abertas ao mesmo tempo (todas as lojas juntas). Medido numa lista de 8 itens (2 rodadas): 3 páginas = 40 s; 6, 9 e 12 ficam todas entre 21 e 30 s, sem ganho claro acima de 6. O pico real de memória sobe ~60 MB por página: ~1,1 GB com 6, ~1,3 GB com 9 e ~1,5 GB com 12 (o limite do container é 1,5 GB) |
+| `SOURCE_CONCURRENCY` | `3` | buscas simultâneas em cada loja; evita sobrecarregar um site com listas grandes |
 | `PROBE_EVERY_MIN` | `60` | de quantos em quantos minutos o app faz uma busca de teste em cada mercado (`0` desliga) |
 | `PUSH_CHECK_HOUR` | `8` | hora (local) em que a rotina diária confere os preços e envia os avisos de queda |
 | `PUSH_MAX_SUBSCRIPTIONS` | `1000` | máximo de aparelhos com aviso ativado |

@@ -3,7 +3,8 @@ import { withTimeout } from '../domain/timeout.js';
 import { createLimiter } from './limiter.js';
 
 export const USER_AGENT = 'Mozilla/5.0 (Macintosh) Chrome/150 Safari/537.36';
-const MAX_PAGES = 3;
+/** Páginas do Chromium abertas ao mesmo tempo (BROWSER_PAGES). Mais páginas = busca mais rápida, mas mais memória e CPU. */
+const MAX_PAGES = Math.max(1, Math.floor(Number(process.env.BROWSER_PAGES)) || 3);
 /** Tempo máximo de uma busca depois de obter a vaga; ao estourar o contexto é fechado (cancela o trabalho). */
 const PAGE_TIMEOUT_MS = 45_000;
 
