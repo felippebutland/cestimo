@@ -100,7 +100,7 @@ describe('farmácias (pharmacies)', () => {
   });
   it('o config/markets.json do projeto traz as farmácias de Chapecó', () => {
     const parsed = readMarketsFile(join(process.cwd(), 'config', 'markets.json'));
-    expect(parsed.pharmacies.map((p) => (p.platform === 'amazon' ? 'Amazon' : p.name))).toEqual(['Pague Menos', 'São João', 'Catarinense']);
+    expect(parsed.pharmacies.map((p) => (p.platform === 'amazon' ? 'Amazon' : p.name))).toEqual(['Pague Menos (entrega)', 'São João', 'Catarinense', 'Preço Popular']);
     expect(parsed.pharmacies.every((p) => p.platform === 'vtex' && p.postalCode === '89801000')).toBe(true);
   });
 });

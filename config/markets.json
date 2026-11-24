@@ -42,7 +42,7 @@
   "pharmacies": [
     {
       "platform": "vtex",
-      "name": "Pague Menos",
+      "name": "Pague Menos (entrega)",
       "origin": "https://www.paguemenos.com.br",
       "postalCode": "89801000"
     },
@@ -56,6 +56,12 @@
       "platform": "vtex",
       "name": "Catarinense",
       "origin": "https://www.drogariacatarinense.com.br",
+      "postalCode": "89801000"
+    },
+    {
+      "platform": "vtex",
+      "name": "Preço Popular",
+      "origin": "https://www.precopopular.com.br",
       "postalCode": "89801000"
     }
   ]
