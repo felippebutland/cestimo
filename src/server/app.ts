@@ -1,3 +1,4 @@
+import { isPushEndpoint, parseSubscribeBody, type SubscriptionStore } from './push/subscriptions.js';
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
@@ -16,12 +17,16 @@ import { createShareStore, type ShareStore } from './shares.js';
 export const MAX_ITEMS = 20;
 
 /** Ações da interface que viram contagem (lista fechada: nada que o usuário digite entra aqui). */
-export const UI_EVENTS = ['copy_item', 'copy_store', 'print_item', 'print_store', 'tab_item', 'tab_store', 'pick_store', 'example', 'swap_match', 'pwa_open', 'pwa_install', 'install_click'] as const;
+export const UI_EVENTS = ['copy_item', 'copy_store', 'print_item', 'print_store', 'tab_item', 'tab_store', 'pick_store', 'example', 'swap_match', 'pwa_open', 'pwa_install', 'install_click', 'push_on', 'push_off'] as const;
 const isUiEvent = (v: unknown): v is (typeof UI_EVENTS)[number] => typeof v === 'string' && (UI_EVENTS as readonly string[]).includes(v);
 
 const ADMIN_DIR = new URL('./admin/', import.meta.url);
 
 export type AppDeps = {
+  /** Avisos de queda de preço (Web Push). Sem isto, as rotas /api/push/* não existem. */
+  push?: { publicKey: string; store: SubscriptionStore };
+  /** Limite de inscrições/cancelamentos por IP (padrão: 30 por hora). */
+  pushRateLimit?: { max: number; windowMs: number };
   sources: PriceSource[];
   city?: string;
   /** Nome do produto exibido na interface. */
@@ -383,6 +388,30 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     if (!found) return reply.code(404).send({ error: 'Link não encontrado ou expirado. Peça para gerar outro.' });
     if (!isIgnored(req)) metrics.inc('ui_events_total', { event: 'share_open' });
     return reply.header('cache-control', 'no-store').send(found);
+  });
+
+  // Avisos de queda de preço: o navegador entrega a inscrição do Web Push e a lista de produtos; o envio é feito pela rotina diária.
+  const pushLimiter = createRateLimiter(deps.pushRateLimit ?? { max: 30, windowMs: 60 * 60 * 1000 });
+  app.get('/api/push/key', async (_req, reply) => {
+    if (!deps.push) return reply.code(404).send({ error: 'not found' });
+    return reply.header('cache-control', 'no-store').send({ key: deps.push.publicKey });
+  });
+  app.post('/api/push/subscribe', async (req, reply) => {
+    if (!deps.push) return reply.code(404).send({ error: 'not found' });
+    if (!pushLimiter.check(req.ip).allowed) return reply.code(429).send({ error: 'Muitas tentativas seguidas. Tente de novo mais tarde.' });
+    const parsed = parseSubscribeBody(req.body);
+    if (!parsed.ok) return reply.code(400).send({ error: 'Inscrição inválida.' });
+    if (!deps.push.store.upsert(parsed.value)) return reply.code(503).send({ error: 'Não estamos aceitando novos avisos no momento.' });
+    metrics.inc('push_events_total', { event: 'subscribe' });
+    return reply.code(204).send();
+  });
+  app.post('/api/push/unsubscribe', async (req, reply) => {
+    if (!deps.push) return reply.code(404).send({ error: 'not found' });
+    if (!pushLimiter.check(req.ip).allowed) return reply.code(429).send({ error: 'Muitas tentativas seguidas. Tente de novo mais tarde.' });
+    const endpoint = (req.body as { endpoint?: unknown } | null)?.endpoint;
+    if (!isPushEndpoint(endpoint)) return reply.code(400).send({ error: 'Inscrição inválida.' });
+    if (deps.push.store.remove(endpoint)) metrics.inc('push_events_total', { event: 'unsubscribe' });
+    return reply.code(204).send();
   });
 
   // Série de preços dos últimos dias de cada produto da lista (para mostrar a tendência).

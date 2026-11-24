@@ -1,6 +1,7 @@
 import { formatBRL, formatPct } from './format.js';
 import { JobExpiredError, submitJob, waitForJob } from './jobs.js';
 import { installMode, isStandalone, pwaOpenOncePerSession } from './install.js';
+import { parsePushState, pushMode, queriesToWatch, urlBase64ToUint8Array } from './push.js';
 import { sparklinePath, summarize } from './trend.js';
 import { formatDay, parseSaved, snapshot, variations } from './history.js';
 import { parseShareHash, shareUrl, toShareBody } from './share.js';
@@ -279,11 +280,12 @@ function render(data, { fresh = true, list, shared = null } = {}) {
     historySeries = null;
     baseline = shared ? null : readSaved()?.snapshot ?? null;
     if (list !== undefined) writeSaved({ list, snapshot: snapshot(data) });
+    if (!shared) void syncPush(data);
   }
   currentData = data;
   $('result').replaceChildren(...[
     sharedView ? sharedBanner(data) : null,
-    comparisonPanel(data, openSwap, baseline, sharedView ? null : shareControls(), historySeries),
+    comparisonPanel(data, openSwap, baseline, sharedView ? null : actionControls(), historySeries),
     shoppingPanel(data),
   ].filter(Boolean));
 }
@@ -336,6 +338,92 @@ function shareControls() {
     }
   });
   return el('div', { className: 'no-print', style: 'display:flex;gap:10px;align-items:center' }, note, button);
+}
+
+/* ---------- Avisos de queda de preço ---------- */
+const PUSH_KEY = 'cestimo:push';
+const readPush = () => { try { return parsePushState(localStorage.getItem(PUSH_KEY)); } catch { return { on: false }; } };
+const writePush = (on) => { try { localStorage.setItem(PUSH_KEY, JSON.stringify({ on })); } catch { /* sem armazenamento */ } };
+const currentPushMode = () => pushMode({
+  hasPush: 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window,
+  standalone: isStandalone({ displayModeStandalone: matchMedia('(display-mode: standalone)').matches, navigatorStandalone: navigator.standalone }),
+  userAgent: navigator.userAgent,
+  touchPoints: navigator.maxTouchPoints,
+  permission: 'Notification' in window ? Notification.permission : 'default',
+});
+
+const postJson = (url, body) => fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+
+/** Quem já ativou os avisos: manda a lista nova para o servidor acompanhar os produtos de agora. Falha = segue com a lista antiga. */
+async function syncPush(data) {
+  if (!readPush().on || currentPushMode() !== 'ready') return;
+  try {
+    const sub = await (await navigator.serviceWorker.ready).pushManager.getSubscription();
+    const queries = queriesToWatch(data.products);
+    if (sub && queries.length > 0) await postJson('/api/push/subscribe', { subscription: sub.toJSON(), queries });
+  } catch {
+    // sem rede: tenta de novo na próxima comparação
+  }
+}
+
+async function enablePush(data) {
+  const permission = await Notification.requestPermission();
+  if (permission !== 'granted') throw new Error('Sem a permissão de notificações, não dá para avisar.');
+  const keyRes = await fetch('/api/push/key');
+  if (!keyRes.ok) throw new Error('Avisos indisponíveis no momento.');
+  const { key } = await keyRes.json();
+  const reg = await navigator.serviceWorker.ready;
+  const sub = (await reg.pushManager.getSubscription()) ?? (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(key) }));
+  const queries = queriesToWatch(data.products);
+  if (queries.length === 0) throw new Error('Nenhum produto da lista tem preço para acompanhar.');
+  const res = await postJson('/api/push/subscribe', { subscription: sub.toJSON(), queries });
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `erro ${res.status}`);
+  writePush(true);
+}
+
+async function disablePush() {
+  const sub = await (await navigator.serviceWorker.ready).pushManager.getSubscription();
+  if (sub) {
+    await postJson('/api/push/unsubscribe', { endpoint: sub.endpoint }).catch(() => {});
+    await sub.unsubscribe().catch(() => {});
+  }
+  writePush(false);
+}
+
+function pushControls() {
+  const mode = currentPushMode();
+  if (mode === 'unsupported') return null;
+  const note = el('span', { className: 'muted-note' });
+  const button = el('button', { type: 'button', className: 'btn' });
+  const paint = () => { button.textContent = readPush().on ? 'Desativar avisos' : 'Avisar quando baixar'; };
+  paint();
+  button.addEventListener('click', async () => {
+    note.textContent = '';
+    if (mode === 'ios-install') { note.textContent = 'No iPhone, instale o app na Tela de Início (botão "Instalar app") e ative o aviso por lá.'; return; }
+    if (mode === 'denied') { note.textContent = 'As notificações deste site estão bloqueadas. Libere nas configurações do navegador.'; return; }
+    button.disabled = true;
+    try {
+      if (readPush().on) {
+        await disablePush();
+        track('push_off');
+        note.textContent = 'Avisos desativados.';
+      } else {
+        await enablePush(currentData);
+        track('push_on');
+        note.textContent = 'Pronto! Avisamos quando algum item da lista baixar 5% ou mais.';
+      }
+    } catch (e) {
+      note.textContent = e.message;
+    } finally {
+      paint();
+      button.disabled = false;
+    }
+  });
+  return el('div', { className: 'no-print', style: 'display:flex;gap:10px;align-items:center;flex-wrap:wrap' }, note, button);
+}
+
+function actionControls() {
+  return el('div', { className: 'no-print', style: 'display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:flex-end' }, pushControls(), shareControls());
 }
 
 function sharedBanner(data) {

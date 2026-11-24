@@ -4,7 +4,7 @@
  * nunca fica presa atrás de um cache velho. Nada de /api, /admin, /metrics nem /grafana passa por aqui.
  */
 const CACHE = 'cestimo-shell-v1';
-const SHELL = ['/', '/app.js', '/format.js', '/jobs.js', '/shoppingList.js', '/overrides.js', '/history.js', '/share.js', '/favicon.svg', '/icon-192.png'];
+const SHELL = ['/', '/app.js', '/format.js', '/jobs.js', '/shoppingList.js', '/overrides.js', '/history.js', '/share.js', '/install.js', '/trend.js', '/push.js', '/favicon.svg', '/icon-192.png'];
 const SKIP = /^\/(api|admin|metrics|grafana|healthz)(\/|$)/;
 
 self.addEventListener('install', (event) => {
@@ -44,4 +44,23 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin || SKIP.test(url.pathname)) return;
   event.respondWith(networkFirst(request));
+});
+
+// Aviso de queda de preço (Web Push): o servidor manda { title, body }; tocar abre o app.
+self.addEventListener('push', (event) => {
+  let data = {};
+  try { data = event.data ? event.data.json() : {}; } catch { /* aviso sem corpo legível */ }
+  const title = typeof data.title === 'string' && data.title ? data.title : 'Cestimo';
+  const body = typeof data.body === 'string' ? data.body : '';
+  event.waitUntil(self.registration.showNotification(title, { body, icon: '/icon-192.png', badge: '/icon-192.png', tag: 'cestimo-queda' }));
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((all) => {
+      const open = all.find((c) => c.url.startsWith(self.location.origin));
+      return open ? open.focus() : self.clients.openWindow('/');
+    }),
+  );
 });

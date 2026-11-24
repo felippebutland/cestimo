@@ -37,14 +37,27 @@ function loadSw(opts: { network: (url: string) => Promise<{ ok: boolean; clone: 
     keys: async () => ['cestimo-shell-v0', 'outro'],
     delete: async () => true,
   };
-  const self = { location: { origin: 'https://cestimo.test' }, addEventListener: (n: string, h: (e: any) => void) => { handlers[n] = h; }, skipWaiting: async () => {}, clients: { claim: async () => {} } };
+  const shown: Array<{ title: string; options: Record<string, unknown> }> = [];
+  const opened: string[] = [];
+  const self = {
+    location: { origin: 'https://cestimo.test' },
+    addEventListener: (n: string, h: (e: any) => void) => { handlers[n] = h; },
+    skipWaiting: async () => {},
+    registration: { showNotification: async (title: string, options: Record<string, unknown>) => { shown.push({ title, options }); } },
+    clients: { claim: async () => {}, matchAll: async () => [], openWindow: async (u: string) => { opened.push(u); } },
+  };
   runInNewContext(read('sw.js'), { self, caches, fetch: (r: { url: string }) => opts.network(r.url), URL, Promise });
   const respond = async (url: string, extra: Record<string, unknown> = {}) => {
     let out: Promise<unknown> | undefined;
     handlers.fetch!({ request: { url, method: 'GET', mode: 'cors', ...extra }, respondWith: (p: Promise<unknown>) => { out = p; } });
     return out;
   };
-  return { respond, stored };
+  const run = async (name: string, event: Record<string, unknown>) => {
+    let waiting: Promise<unknown> | undefined;
+    handlers[name]!({ ...event, waitUntil: (p: Promise<unknown>) => { waiting = p; } });
+    await waiting;
+  };
+  return { respond, stored, shown, opened, run };
 }
 const okRes = (tag: string) => ({ ok: true, tag, clone() { return this; } });
 
@@ -75,5 +88,30 @@ describe('service worker', () => {
     const sw = loadSw({ network: async () => ({ ok: false, clone() { return this; } }) as any });
     await sw.respond('https://cestimo.test/app.js');
     expect(sw.stored.has('/app.js')).toBe(false);
+  });
+});
+
+describe('avisos de queda de preço no service worker', () => {
+  const offline = async () => { throw new Error('offline'); };
+  it('mostra a notificação com o título e o texto enviados pelo servidor', async () => {
+    const sw = loadSw({ network: offline });
+    await sw.run('push', { data: { json: () => ({ title: 'Baixou 10%: sal 1kg', body: 'R$ 4,50 no Royal (antes R$ 5,00)' }) } });
+    expect(sw.shown).toEqual([{ title: 'Baixou 10%: sal 1kg', options: expect.objectContaining({ body: 'R$ 4,50 no Royal (antes R$ 5,00)' }) }]);
+  });
+  it('aviso sem corpo legível ainda aparece (o navegador exige mostrar algo)', async () => {
+    const sw = loadSw({ network: offline });
+    await sw.run('push', { data: { json: () => { throw new Error('não é json'); } } });
+    expect(sw.shown[0]!.title).toBe('Cestimo');
+  });
+  it('tocar na notificação abre o app', async () => {
+    const sw = loadSw({ network: offline });
+    let closed = false;
+    await sw.run('notificationclick', { notification: { close: () => { closed = true; } } });
+    expect(closed).toBe(true);
+    expect(sw.opened).toEqual(['/']);
+  });
+  it('a casca do app guardada para uso sem internet inclui os módulos novos', () => {
+    const src = read('sw.js');
+    for (const f of ['/install.js', '/trend.js', '/push.js']) expect(src).toContain(`'${f}'`);
   });
 });

@@ -9,9 +9,15 @@ import { createDailyStats } from './dailyStats.js';
 import { buildSources, readMarketsFile } from './markets.js';
 import { createTopList } from './metrics.js';
 import { createStateFile, startAutosave } from './persistence.js';
-import { createHistoryStore } from './history.js';
+import { createHistoryStore, dayKey } from './history.js';
 import { runBackup } from './backup.js';
 import { runProbe } from './probe.js';
+import * as webpush from 'web-push';
+import { createSubscriptionStore } from './push/subscriptions.js';
+import { createSender, loadOrCreateVapid } from './push/sender.js';
+import { runDailyCheck } from './push/dailyCheck.js';
+import { createFindPrices } from './push/findPrices.js';
+import { dueToday } from './push/schedule.js';
 import { createShareStore } from './shares.js';
 
 const num = (name: string, fallback: number): number => {
@@ -59,6 +65,13 @@ const history = createHistoryStore({ path: join(process.env.DATA_DIR ?? './data'
 history.purge();
 setInterval(() => { try { history.purge(); } catch { /* limpeza é só higiene */ } }, 24 * 60 * 60 * 1000).unref();
 
+// Avisos de queda de preço (Web Push): inscrições e referências de preço em DATA_DIR/push.json (gravadas na hora).
+const pushFile = createStateFile(join(process.env.DATA_DIR ?? './data', 'push.json'));
+const pushStore = createSubscriptionStore({ maxSubs: num('PUSH_MAX_SUBSCRIPTIONS', 1000), onChange: () => { pushFile.save(pushStore.snapshot()); } });
+pushStore.restore(pushFile.load());
+const vapid = loadOrCreateVapid(process.env.DATA_DIR ?? './data', () => webpush.generateVAPIDKeys(), process.env.PUSH_SUBJECT || 'https://cestimo.butland.sbs');
+const sendPush = createSender(vapid, (subscription, payload, options) => webpush.sendNotification(subscription, payload, options));
+
 const rawSources = buildSources(markets);
 const sources = rawSources.map((s) =>
   withCache(s, TEN_MINUTES, Date.now, {
@@ -88,6 +101,7 @@ const app = buildApp({
   daily,
   shares,
   history,
+  push: { publicKey: vapid.publicKey, store: pushStore },
   utcOffsetMinutes,
   metricsToken: process.env.METRICS_TOKEN || undefined,
   rateLimit: { max: num('RATE_LIMIT_MAX', 20), windowMs: num('RATE_LIMIT_WINDOW_MIN', 60) * 60 * 1000 },
@@ -103,6 +117,34 @@ if (saved) app.log.info('Números anteriores restaurados do disco.');
 
 backupNow();
 setInterval(backupNow, 24 * 60 * 60 * 1000).unref();
+
+// Rotina diária dos avisos: busca uma vez cada produto acompanhado, compara com a referência e avisa quem pediu.
+const findPrices = createFindPrices(sources, {
+  onProducts: (products) => {
+    const day = dayKey(Date.now(), utcOffsetMinutes);
+    for (const p of products) {
+      const rows = p.sources.flatMap((s) => (s.match && !s.match.uncertain ? [{ source: s.source, priceBRL: s.match.equivalentBRL }] : []));
+      history.record(day, p.query, rows);
+    }
+  },
+});
+const pushCheck = async (): Promise<void> => {
+  const { due, day } = dueToday({ now: Date.now(), utcOffsetMinutes, hour: num('PUSH_CHECK_HOUR', 8), lastRunDay: pushStore.getLastRunDay() });
+  if (!due || pushStore.size() === 0) return;
+  pushStore.setLastRunDay(day);
+  try {
+    const r = await runDailyCheck({ store: pushStore, find: findPrices, send: sendPush });
+    metrics.inc('push_events_total', { event: 'drop' }, r.drops);
+    metrics.inc('push_events_total', { event: 'sent' }, r.sent);
+    metrics.inc('push_events_total', { event: 'gone' }, r.removed);
+    metrics.inc('push_events_total', { event: 'failed' }, r.failed);
+    app.log.info({ event: 'push_check', ...r });
+  } catch (e) {
+    app.log.warn({ event: 'push_check_error', message: e instanceof Error ? e.message : String(e) });
+  }
+};
+setTimeout(() => void pushCheck(), 5 * 60 * 1000).unref();
+setInterval(() => void pushCheck(), 60 * 60 * 1000).unref();
 
 // Teste automático: uma busca fixa em cada mercado a cada hora (sem cache), para notar site que mudou mesmo sem ninguém usando.
 const probeEveryMin = num('PROBE_EVERY_MIN', 60);

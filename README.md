@@ -315,6 +315,9 @@ Se o servidor está atrás de um roteador, em casa ou sem IP fixo, dá para usar
 | `HISTORY_KEEP_DAYS` | `365` | por quantos dias o histórico de preços fica guardado (arquivo `history.db` em `DATA_DIR`) |
 | `BACKUP_KEEP_DAYS` | `14` | quantos backups diários ficam em `DATA_DIR/backups` (histórico, estatísticas e links) |
 | `PROBE_EVERY_MIN` | `60` | de quantos em quantos minutos o app faz uma busca de teste em cada mercado (`0` desliga) |
+| `PUSH_CHECK_HOUR` | `8` | hora (local) em que a rotina diária confere os preços e envia os avisos de queda |
+| `PUSH_MAX_SUBSCRIPTIONS` | `1000` | máximo de aparelhos com aviso ativado |
+| `PUSH_SUBJECT` | `https://cestimo.butland.sbs` | endereço de contato informado ao serviço de push (VAPID) |
 | `PROBE_TERM` | `leite integral 1L` | o que o teste automático busca |
 | `TZ_OFFSET_MIN` | `-180` | fuso dos gráficos por dia, em minutos do UTC (-180 = Brasília) |
 | `GRAFANA_PASSWORD` | vazio | senha do Grafana (só no perfil `monitoring`) |
@@ -369,3 +372,12 @@ Defina a licença do seu repositório (por exemplo, adicionando um arquivo `LICE
 
 - **Backup:** o app grava todo dia, em `DATA_DIR/backups/AAAA-MM-DD/`, uma cópia consistente do histórico de preços (`history.db`), das estatísticas (`stats.json`) e dos links (`shares.json`). Essa pasta fica dentro do volume do Docker, então o `scripts/backup.sh` leva uma cópia para fora (padrão `~/Backups/cestimo`, ou `CESTIMO_BACKUP_DIR`; aponte para o iCloud Drive para sair do disco). Para agendar no macOS: `cp scripts/com.cestimo.backup.plist ~/Library/LaunchAgents/ && launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.cestimo.backup.plist` (roda às 4h15). Para restaurar, copie o `history.db` do dia para o volume (`/app/data/history.db`) com o app parado.
 - **Teste automático dos mercados:** a cada hora o app busca `PROBE_TERM` em cada mercado, sem cache e uma loja por vez, e conta o resultado em `source_probe_total{source,result}`. O alerta *Mercado falhou no teste automático* dispara quando 90% ou mais dos testes das últimas 3 h falharam.
+
+## Aviso de queda de preço (notificação)
+
+- **Como funciona:** depois de uma comparação, o botão **Avisar quando baixar** inscreve o aparelho (Web Push) com até 10 produtos da lista. Uma vez por dia (`PUSH_CHECK_HOUR`) o app busca cada produto acompanhado **uma única vez** (não importa quantas pessoas o acompanhem), compara o menor preço confiável com a referência guardada e envia a notificação a quem acompanha o produto quando a queda é de **5% ou mais**.
+- **Referência de preço:** é guardada por produto. A primeira vez só registra; se o preço sobe, a referência sobe junto; quedas pequenas (menos de 5%) não mudam a referência, então somam até chegar ao limite. Ao avisar, o preço novo vira a referência.
+- **iPhone:** o iOS só entrega notificação de app instalado na Tela de Início (iOS 16.4 ou mais novo). O botão orienta a instalar primeiro.
+- **Dados:** `DATA_DIR/push.json` (aparelhos, produtos e referências) e `DATA_DIR/vapid.json` (chaves do servidor; **não apague**, trocar as chaves invalida todas as inscrições). Os dois entram no backup diário. O servidor só envia para endereços dos serviços de push dos navegadores (Chrome, Firefox, Safari e Windows).
+- **Aparelho que sumiu:** quando o serviço de push informa que a inscrição não existe mais (404/410), ela é removida sozinha.
+- **Métricas:** `push_events_total{event=subscribe|unsubscribe|drop|sent|gone|failed}` e, no `/admin`, as ações "Ativou/Desativou aviso de queda de preço".

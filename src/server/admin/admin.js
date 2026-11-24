@@ -20,6 +20,8 @@ const EVENT_LABELS = {
   swap_match: 'Trocou o item escolhido',
   pwa_open: 'Abriu o app instalado (PWA)',
   pwa_install: 'Instalou o app',
+  push_on: 'Ativou aviso de queda de preço',
+  push_off: 'Desativou aviso de queda de preço',
   install_click: 'Tocou em "Instalar app"',
   example: 'Usou um exemplo',
 };

@@ -20,7 +20,7 @@ export function runBackup({ dataDir, history, now, utcOffsetMinutes, keep }: Bac
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(dir, { recursive: true });
   history.backupTo(join(dir, 'history.db'));
-  for (const file of ['stats.json', 'shares.json']) {
+  for (const file of ['stats.json', 'shares.json', 'push.json', 'vapid.json']) {
     const from = join(dataDir, file);
     if (existsSync(from)) copyFileSync(from, join(dir, file));
   }

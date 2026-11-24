@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { buildApp } from './app.js';
+import { createSubscriptionStore } from './push/subscriptions.js';
 import type { PriceSource } from '../domain/types.js';
 
 const fake: PriceSource = { name: 'fake', search: async () => [{ source: 'fake', title: 'Arroz Urbano 5kg', priceBRL: 21.79 }] };
@@ -551,7 +552,7 @@ describe('POST /api/recompute (depois que a pessoa troca um item)', () => {
     expect((await post(app, payload)).statusCode).toBe(429);
   });
 
-  it.each(['pwa_open', 'pwa_install', 'install_click'])('o evento anônimo "%s" do app instalado é aceito e contado', async (name) => {
+  it.each(['pwa_open', 'pwa_install', 'install_click', 'push_on', 'push_off'])('o evento anônimo "%s" do app instalado é aceito e contado', async (name) => {
     const app = buildApp({ sources: [fake], metricsToken: 'x' });
     expect((await app.inject({ method: 'POST', url: '/api/event', payload: { name } })).statusCode).toBe(204);
     const stats = (await app.inject({ method: 'GET', url: '/admin/stats', headers: { authorization: `Basic ${Buffer.from('admin:x').toString('base64')}` } })).json();
@@ -679,3 +680,60 @@ describe('histórico de preços', () => {
   });
 });
 
+describe('avisos de queda de preço (push)', () => {
+  const sub = (id = 'abc') => ({ endpoint: `https://fcm.googleapis.com/fcm/send/${id}`, keys: { p256dh: 'BPublicKey_-1234567890', auth: 'AuthSecret_-12' } });
+  const mk = (extra: Record<string, unknown> = {}) => {
+    const store = createSubscriptionStore();
+    const app = buildApp({ sources: [fake], push: { publicKey: 'CHAVE_PUBLICA', store }, ...extra });
+    return { app, store };
+  };
+  const subscribe = (app: ReturnType<typeof buildApp>, payload: unknown, headers: Record<string, string> = {}) =>
+    app.inject({ method: 'POST', url: '/api/push/subscribe', payload: payload as object, headers });
+
+  it('entrega a chave pública para o navegador se inscrever', async () => {
+    const { app } = mk();
+    const res = await app.inject({ method: 'GET', url: '/api/push/key' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ key: 'CHAVE_PUBLICA' });
+  });
+  it('sem push configurado, as rotas não existem (404)', async () => {
+    const app = buildApp({ sources: [fake] });
+    expect((await app.inject({ method: 'GET', url: '/api/push/key' })).statusCode).toBe(404);
+    expect((await subscribe(app, { subscription: sub(), queries: ['sal 1kg'] })).statusCode).toBe(404);
+  });
+  it('inscreve o aparelho com os produtos da lista e guarda normalizado', async () => {
+    const { app, store } = mk();
+    expect((await subscribe(app, { subscription: sub(), queries: ['Sal 1KG', 'Leite  integral 1L'] })).statusCode).toBe(204);
+    expect(store.all()).toHaveLength(1);
+    expect(store.queries().sort()).toEqual(['leite integral 1l', 'sal 1kg']);
+  });
+  it('recusa endpoint fora dos serviços de push e corpo inválido (400), sem guardar nada', async () => {
+    const { app, store } = mk();
+    expect((await subscribe(app, { subscription: { ...sub(), endpoint: 'https://169.254.169.254/x' }, queries: ['sal'] })).statusCode).toBe(400);
+    expect((await subscribe(app, { subscription: sub(), queries: [] })).statusCode).toBe(400);
+    expect(store.size()).toBe(0);
+  });
+  it('cancelar remove o aparelho; cancelar de novo também responde 204', async () => {
+    const { app, store } = mk();
+    await subscribe(app, { subscription: sub(), queries: ['sal 1kg'] });
+    const un = () => app.inject({ method: 'POST', url: '/api/push/unsubscribe', payload: { endpoint: sub().endpoint } });
+    expect((await un()).statusCode).toBe(204);
+    expect(store.size()).toBe(0);
+    expect((await un()).statusCode).toBe(204);
+    expect((await app.inject({ method: 'POST', url: '/api/push/unsubscribe', payload: { endpoint: 'https://evil.com/x' } })).statusCode).toBe(400);
+  });
+  it('limite de inscrições por IP: passou, responde 429', async () => {
+    const { app } = mk({ pushRateLimit: { max: 2, windowMs: 60_000 } });
+    const go = (i: number) => subscribe(app, { subscription: sub(`id${i}`), queries: ['sal'] });
+    expect((await go(1)).statusCode).toBe(204);
+    expect((await go(2)).statusCode).toBe(204);
+    expect((await go(3)).statusCode).toBe(429);
+  });
+  it('lotação do servidor responde 503 sem derrubar quem já está inscrito', async () => {
+    const store = createSubscriptionStore({ maxSubs: 1 });
+    const app = buildApp({ sources: [fake], push: { publicKey: 'K', store } });
+    expect((await subscribe(app, { subscription: sub('a'), queries: ['sal'] })).statusCode).toBe(204);
+    expect((await subscribe(app, { subscription: sub('b'), queries: ['sal'] })).statusCode).toBe(503);
+    expect((await subscribe(app, { subscription: sub('a'), queries: ['arroz'] })).statusCode).toBe(204);
+  });
+});
