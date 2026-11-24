@@ -1,9 +1,10 @@
-import { formatBRL, formatPct } from './format.js';
+import { formatBRL, formatPct, coverageLabel } from './format.js';
 import { JobExpiredError, submitJob, waitForJob } from './jobs.js';
 import { installMode, isStandalone, pwaOpenOncePerSession } from './install.js';
 import { rankSources, rankTotals } from './mobileOrder.js';
 import { normalizeMarket, visibleMarkets } from './marketFilter.js';
 import { cmedText, cmedTitle } from './cmed.js';
+import { THEMES, THEME_COLOR, THEME_KEY, normalizeTheme, resolveTheme } from './theme.js';
 import { CATEGORY_TEXT, normalizeCategory, savedKey, sourcesFor } from './category.js';
 import { parsePushState, pushMode, queriesToWatch, urlBase64ToUint8Array } from './push.js';
 import { sparklinePath, summarize } from './trend.js';
@@ -212,8 +213,8 @@ function comparisonPanel(data, onSwap, baseline, actions, series, market = null)
     const labeled = (td, label, order) => { td.dataset.label = label; td.style.setProperty('--o', String(order)); return td; };
     return el('tr', {}, el('td', { className: 'prod' }, p.query, trendLine(trends[pi], since), historyLine(series?.[pi]), cmedLine(p.cmed)),
       ...shown.map((s, si) => labeled(cell(s, s.source === best, () => onSwap(pi, s.source)), s.source, rank[si])),
-      labeled(el('td', { className: 'cell summary' }, el('span', { className: 'px', textContent: p.stats ? formatBRL(p.stats.averageBRL) : '—' })), 'Média', 90),
-      labeled(el('td', { className: 'cell summary' }, el('span', { className: 'px', textContent: p.stats ? `${formatBRL(p.stats.diffBRL)}${' '}(${formatPct(p.stats.diffPct)})` : '—' })), 'Diferença', 91));
+      labeled(el('td', { className: 'cell summary' }, el('span', { className: 'px', textContent: p.stats ? formatBRL(p.stats.averageBRL) : '—' })), 'Média dos mercados', 90),
+      labeled(el('td', { className: 'cell summary' }, el('span', { className: 'px', textContent: p.stats ? `${formatBRL(p.stats.diffBRL)}${' '}(${formatPct(p.stats.diffPct)})` : '—' })), 'Mais barato × mais caro', 91));
   });
   const { totals, coverage, total, cheapestSource } = data.basket;
   const totalRank = rankTotals(names, totals, cheapestSource);
@@ -222,7 +223,7 @@ function comparisonPanel(data, onSwap, baseline, actions, series, market = null)
       const td = el('td', { className: `cell${n === cheapestSource ? ' best' : ''}` });
       td.dataset.label = n;
       td.style.setProperty('--o', String(totalRank[ni]));
-      if (totals[n] != null) td.append(el('div', { className: 'px', textContent: formatBRL(totals[n]) }), el('div', { className: 'sub', textContent: `${coverage[n]} de ${total} itens` }));
+      if (totals[n] != null) td.append(el('div', { className: 'px', textContent: formatBRL(totals[n]) }), el('div', { className: 'sub', textContent: coverageLabel(coverage[n], total) }));
       else td.append(el('span', { className: 'none', textContent: '—' }));
       return td;
     }), el('td'), el('td'));
@@ -323,12 +324,12 @@ function shoppingPanel(data) {
   tabItem.addEventListener('click', () => { if (mode !== 'item') track('tab_item'); mode = 'item'; shopState.mode = mode; paint(); });
   tabStore.addEventListener('click', () => { if (mode !== 'store') track('tab_store'); mode = 'store'; shopState.mode = mode; paint(); });
 
-  const copy = el('button', { type: 'button', className: 'btn', textContent: 'Copiar texto' });
+  const copy = el('button', { type: 'button', className: 'btn', textContent: 'Copiar lista' });
   copy.addEventListener('click', async () => {
     track(mode === 'item' ? 'copy_item' : 'copy_store');
     await copyText(toText(current()));
     copy.textContent = 'Copiado';
-    setTimeout(() => { copy.textContent = 'Copiar texto'; }, 2000);
+    setTimeout(() => { copy.textContent = 'Copiar lista'; }, 2000);
   });
   const print = el('button', { type: 'button', className: 'btn', textContent: 'Imprimir / PDF' });
   print.addEventListener('click', () => {
@@ -476,7 +477,7 @@ function pushControls() {
   if (mode === 'unsupported' || category !== 'mercados') return null; // aviso de queda de preço: só para mercados por enquanto
   const note = el('span', { className: 'muted-note' });
   const button = el('button', { type: 'button', className: 'btn' });
-  const paint = () => { button.textContent = readPush().on ? 'Desativar avisos' : 'Avisar quando baixar'; };
+  const paint = () => { button.textContent = readPush().on ? 'Desativar avisos' : '🔔 Avisar quando baixar'; };
   paint();
   button.addEventListener('click', async () => {
     note.textContent = '';
@@ -776,3 +777,24 @@ const syncToTop = () => { toTop.hidden = window.scrollY < 700; };
 window.addEventListener('scroll', syncToTop, { passive: true });
 toTop.addEventListener('click', () => window.scrollTo({ top: 0, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }));
 syncToTop();
+
+/* ---------- Tema (automático, claro ou escuro) ---------- */
+const systemDark = window.matchMedia('(prefers-color-scheme: dark)');
+function readTheme() { try { return normalizeTheme(localStorage.getItem(THEME_KEY)); } catch { return 'auto'; } }
+function applyTheme(pref) {
+  if (pref === 'auto') delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = pref === 'claro' ? 'light' : 'dark';
+  const color = THEME_COLOR[resolveTheme(pref, systemDark.matches)];
+  document.querySelectorAll('meta[name="theme-color"]').forEach((m) => m.setAttribute('content', color));
+  $('theme').querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.theme === pref)));
+}
+for (const t of THEMES) {
+  const button = el('button', { type: 'button', textContent: t.label, title: t.id === 'auto' ? 'Seguir o tema do aparelho' : `Tema ${t.label.toLowerCase()}`, onclick: () => {
+    try { localStorage.setItem(THEME_KEY, t.id); } catch { /* sem armazenamento: vale só nesta visita */ }
+    applyTheme(t.id);
+  } });
+  button.dataset.theme = t.id;
+  $('theme').append(button);
+}
+systemDark.addEventListener('change', () => applyTheme(readTheme()));
+applyTheme(readTheme());
