@@ -42,12 +42,6 @@
   "pharmacies": [
     {
       "platform": "vtex",
-      "name": "Pague Menos (entrega)",
-      "origin": "https://www.paguemenos.com.br",
-      "postalCode": "89801000"
-    },
-    {
-      "platform": "vtex",
       "name": "São João",
       "origin": "https://www.saojoaofarmacias.com.br",
       "postalCode": "89801000"

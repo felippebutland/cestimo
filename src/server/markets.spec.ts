@@ -98,9 +98,9 @@ describe('farmácias (pharmacies)', () => {
     expect(buildSources(parsed).map((s) => s.name)).toEqual(['Comper']);
     expect(buildPharmacySources(parsed).map((s) => s.name)).toEqual(['Pague Menos']);
   });
-  it('o config/markets.json do projeto traz as farmácias de Chapecó', () => {
+  it('o config/markets.json do projeto traz só farmácias com loja em Chapecó (sem as de entrega, como a Pague Menos)', () => {
     const parsed = readMarketsFile(join(process.cwd(), 'config', 'markets.json'));
-    expect(parsed.pharmacies.map((p) => (p.platform === 'amazon' ? 'Amazon' : p.name))).toEqual(['Pague Menos (entrega)', 'São João', 'Catarinense', 'Preço Popular']);
+    expect(parsed.pharmacies.map((p) => (p.platform === 'amazon' ? 'Amazon' : p.name))).toEqual(['São João', 'Catarinense', 'Preço Popular']);
     expect(parsed.pharmacies.every((p) => p.platform === 'vtex' && p.postalCode === '89801000')).toBe(true);
   });
 });
