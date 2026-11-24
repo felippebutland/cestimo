@@ -321,6 +321,7 @@ Se o servidor está atrás de um roteador, em casa ou sem IP fixo, dá para usar
 | `PUSH_MAX_SUBSCRIPTIONS` | `1000` | máximo de aparelhos com aviso ativado |
 | `PUSH_SUBJECT` | `https://cestimo.butland.sbs` | endereço de contato informado ao serviço de push (VAPID) |
 | `PROBE_TERM` | `leite integral 1L` | o que o teste automático busca nos mercados |
+| `CMED_FILE` | `config/cmed-pmc.json.gz` | arquivo com os preços máximos da CMED (gerado por `npm run cmed:build`) |
 | `PROBE_PHARMACY_TERM` | `dipirona 500mg` | o que o teste automático busca nas farmácias |
 | `TZ_OFFSET_MIN` | `-180` | fuso dos gráficos por dia, em minutos do UTC (-180 = Brasília) |
 | `GRAFANA_PASSWORD` | vazio | senha do Grafana (só no perfil `monitoring`) |
@@ -392,5 +393,8 @@ Defina a licença do seu repositório (por exemplo, adicionando um arquivo `LICE
 - **Redes que ficaram de fora:** Panvel, Drogasil e Droga Raia respondem "Access Denied" (403) a um navegador automatizado. Não contornamos esse tipo de proteção, então não estão na lista.
 - **Comparação de remédios:** a quantidade de comprimidos, cápsulas, ampolas e sachês vale mais que a dosagem em gramas ou o volume da ampola. A dosagem pedida (`500mg`, `1g` = `1000mg`, `FPS 50`) precisa aparecer no título: outra dosagem é outro produto e é recusada; título sem dosagem escrita aparece como "incerto". Quantidade diferente de comprimidos entra como "outro tamanho", com preço equivalente.
 - **Genérico x marca:** o app escolhe o item que mais se parece com o pedido. "Dipirona 500mg 10 comprimidos" pode trazer um genérico numa farmácia e a marca (Novalgina) em outra, com preços bem diferentes. Use "Não é esse?" para escolher o que você quer comparar.
+- **Teto oficial (CMED/Anvisa):** para remédios que têm preço máximo ao consumidor, a linha do produto mostra "Teto oficial do genérico (CMED): R$ x a R$ y" (ou "Teto oficial", quando só há marca). É o PMC com ICMS de 17% (Santa Catarina), da lista oficial de `config/cmed-pmc.json.gz`. Remédios isentos de prescrição (dipirona, paracetamol) têm preço livre e **não aparecem**: o teto vale para os de receita (losartana, omeprazol, amoxicilina…). Embalagens hospitalares ("EMB MULT/FRAC", "CX", "CT 50 FR") ficam de fora. Para atualizar a lista (sai uma por mês): `npm run cmed:build` (baixa ≈13 MB de gov.br/anvisa e regrava o arquivo; precisa do comando `unzip`) e faça o commit. `CMED_FILE` troca o caminho do arquivo.
+- **Redes só com entrega** (testadas e não incluídas, porque não têm loja em Chapecó): Pacheco, Drogaria São Paulo, Farmácia Indiana, Venâncio e Drogal entregam pelos Correios/transportadora em 6 a 10 dias úteis. Para incluí-las com o rótulo "(entrega)", basta acrescentar `{ "platform": "vtex", "name": "…(entrega)", "origin": "…", "postalCode": "89801000" }` em `pharmacies`.
+- **Comparadores de farmácia** (Consulta Remédios, Buscapé) não são usados: os termos de uso proíbem coleta automatizada de dados.
 - **Ainda só para mercados:** o aviso de queda de preço (notificação).
 - **Métrica:** `compare_category_total{category}`.
