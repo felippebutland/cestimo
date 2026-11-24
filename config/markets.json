@@ -1,11 +1,62 @@
 {
   "city": "Chapecó, SC",
   "markets": [
-    { "platform": "osuper", "name": "Comper", "origin": "https://www.comper.com.br", "tenant": "335", "storeId": "1803", "storeCookie": true },
-    { "platform": "osuper", "name": "Royal", "origin": "https://www.superroyal.com.br", "tenant": "8", "storeId": "18" },
-    { "platform": "mercafacil", "name": "Brasão", "origin": "https://www.brasao.com.br", "basePath": "/avenida" },
-    { "platform": "mercafacil", "name": "Unicooper", "origin": "https://www.unicoopersupermercados.com.br", "basePath": "/loja" },
-    { "platform": "vipcommerce", "name": "Passarela", "origin": "https://www.passarelaemcasa.com.br", "branchName": "Passarela - Chapecó", "distributionCenterId": "8" },
-    { "platform": "amazon" }
+    {
+      "platform": "osuper",
+      "name": "Comper",
+      "origin": "https://www.comper.com.br",
+      "tenant": "335",
+      "storeId": "1803",
+      "storeCookie": true
+    },
+    {
+      "platform": "osuper",
+      "name": "Royal",
+      "origin": "https://www.superroyal.com.br",
+      "tenant": "8",
+      "storeId": "18"
+    },
+    {
+      "platform": "mercafacil",
+      "name": "Brasão",
+      "origin": "https://www.brasao.com.br",
+      "basePath": "/avenida"
+    },
+    {
+      "platform": "mercafacil",
+      "name": "Unicooper",
+      "origin": "https://www.unicoopersupermercados.com.br",
+      "basePath": "/loja"
+    },
+    {
+      "platform": "vipcommerce",
+      "name": "Passarela",
+      "origin": "https://www.passarelaemcasa.com.br",
+      "branchName": "Passarela - Chapecó",
+      "distributionCenterId": "8"
+    },
+    {
+      "platform": "amazon"
+    }
+  ],
+  "pharmacies": [
+    {
+      "platform": "vtex",
+      "name": "Pague Menos",
+      "origin": "https://www.paguemenos.com.br",
+      "postalCode": "89801000"
+    },
+    {
+      "platform": "vtex",
+      "name": "São João",
+      "origin": "https://www.saojoaofarmacias.com.br",
+      "postalCode": "89801000"
+    },
+    {
+      "platform": "vtex",
+      "name": "Catarinense",
+      "origin": "https://www.drogariacatarinense.com.br",
+      "postalCode": "89801000"
+    }
   ]
 }

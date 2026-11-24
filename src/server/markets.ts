@@ -4,16 +4,18 @@ import { amazonSource } from '../sources/amazon.js';
 import { createMercafacilSource, type MercafacilConfig } from '../sources/mercafacil.js';
 import { createOsuperSource, type OsuperConfig } from '../sources/osuper.js';
 import { createVipSource, type VipConfig } from '../sources/vipcommerce.js';
+import { createVtexSource, type VtexConfig } from '../sources/vtex.js';
 
 export type MarketConfig =
   | ({ platform: 'osuper' } & OsuperConfig)
   | ({ platform: 'mercafacil' } & MercafacilConfig)
   | ({ platform: 'vipcommerce' } & VipConfig)
+  | ({ platform: 'vtex' } & VtexConfig)
   | { platform: 'amazon' };
 
-export type MarketsFile = { city: string; markets: MarketConfig[] };
+export type MarketsFile = { city: string; markets: MarketConfig[]; pharmacies: MarketConfig[] };
 
-const PLATFORMS = ['osuper', 'mercafacil', 'vipcommerce', 'amazon'] as const;
+const PLATFORMS = ['osuper', 'mercafacil', 'vipcommerce', 'vtex', 'amazon'] as const;
 type Obj = Record<string, unknown>;
 
 const isObject = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -55,6 +57,12 @@ function parseMarket(raw: unknown, index: number): MarketConfig {
       if (!basePath.startsWith('/')) throw new Error(`${label}: "basePath" deve começar com "/", ex.: /avenida`);
       return { platform, ...base, basePath };
     }
+    case 'vtex': {
+      // aceita "89801-000" e guarda só os dígitos
+      const postalCode = text(raw, 'postalCode', label).replace(/-/g, '');
+      if (!/^\d{8}$/.test(postalCode)) throw new Error(`${label}: "postalCode" deve ter 8 dígitos, ex.: 89801000`);
+      return { platform: 'vtex', ...base, postalCode };
+    }
     default:
       return {
         platform: 'vipcommerce', ...base,
@@ -69,10 +77,12 @@ export function parseMarketsFile(raw: unknown): MarketsFile {
   if (typeof raw.city !== 'string' || raw.city.trim() === '') throw new Error('Falta o campo "city" (ex.: "Chapecó, SC").');
   if (!Array.isArray(raw.markets) || raw.markets.length === 0) throw new Error('"markets" deve ser uma lista com ao menos um mercado.');
   const markets = raw.markets.map(parseMarket);
-  const names = markets.map((m) => (m.platform === 'amazon' ? 'Amazon' : m.name));
+  if (raw.pharmacies !== undefined && !Array.isArray(raw.pharmacies)) throw new Error('"pharmacies" deve ser uma lista de farmácias (ou ficar de fora).');
+  const pharmacies = (raw.pharmacies ?? []).map((p: unknown, i: number) => parseMarket(p, i));
+  const names = [...markets, ...pharmacies].map((m) => (m.platform === 'amazon' ? 'Amazon' : m.name));
   const repeated = names.find((n, i) => names.indexOf(n) !== i);
   if (repeated) throw new Error(`Nome de mercado repetido: "${repeated}". Cada mercado precisa de um nome único.`);
-  return { city: raw.city, markets };
+  return { city: raw.city, markets, pharmacies };
 }
 
 export function readMarketsFile(path: string): MarketsFile {
@@ -86,13 +96,18 @@ export function readMarketsFile(path: string): MarketsFile {
   return parseMarketsFile(json);
 }
 
-export function buildSources(file: MarketsFile): PriceSource[] {
-  return file.markets.map((m): PriceSource => {
-    switch (m.platform) {
-      case 'osuper': return createOsuperSource(m);
-      case 'mercafacil': return createMercafacilSource(m);
-      case 'vipcommerce': return createVipSource(m);
-      case 'amazon': return amazonSource;
-    }
-  });
+function buildSource(m: MarketConfig): PriceSource {
+  switch (m.platform) {
+    case 'osuper': return createOsuperSource(m);
+    case 'mercafacil': return createMercafacilSource(m);
+    case 'vipcommerce': return createVipSource(m);
+    case 'vtex': return createVtexSource(m);
+    case 'amazon': return amazonSource;
+  }
 }
+
+/** Supermercados (e Amazon). */
+export const buildSources = (file: MarketsFile): PriceSource[] => file.markets.map(buildSource);
+
+/** Farmácias; lista vazia quando o arquivo não define "pharmacies". */
+export const buildPharmacySources = (file: MarketsFile): PriceSource[] => file.pharmacies.map(buildSource);

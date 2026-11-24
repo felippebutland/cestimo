@@ -1,0 +1,108 @@
+{
+  "products": [
+    {
+      "productName": "Dipirona Sódica 50mg/ml 100ml Solução Oral Genérico EMS",
+      "link": "/dipirona-sodica-50mg-100ml-generico-ems/p",
+      "priceRange": {
+        "sellingPrice": {
+          "highPrice": 16.79,
+          "lowPrice": 16.79
+        },
+        "listPrice": {
+          "highPrice": 20.56,
+          "lowPrice": 20.56
+        }
+      },
+      "items": [
+        {
+          "sellers": [
+            {
+              "commertialOffer": {
+                "Price": 16.79,
+                "AvailableQuantity": 10000
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "productName": "Dipirona Monoidratada 1g 20 Comprimidos Genérico Neo Química",
+      "link": "/dipirona-monoidratada-1g-20-comprimidos-generico-neo-quimica/p",
+      "priceRange": {
+        "sellingPrice": {
+          "highPrice": 21.79,
+          "lowPrice": 21.79
+        },
+        "listPrice": {
+          "highPrice": 24.82,
+          "lowPrice": 24.82
+        }
+      },
+      "items": [
+        {
+          "sellers": [
+            {
+              "commertialOffer": {
+                "Price": 21.79,
+                "AvailableQuantity": 10000
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "productName": "Dipirona Monoidratada 500mg/Ml 20ml Solução Gotas Generico Neo Química",
+      "link": "/dipirona-monoidratada-500mg-ml-20ml-solucao-gotas-generico-neo-quimica/p",
+      "priceRange": {
+        "sellingPrice": {
+          "highPrice": 8.89,
+          "lowPrice": 8.89
+        },
+        "listPrice": {
+          "highPrice": 15.05,
+          "lowPrice": 15.05
+        }
+      },
+      "items": [
+        {
+          "sellers": [
+            {
+              "commertialOffer": {
+                "Price": 8.89,
+                "AvailableQuantity": 10000
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "productName": "Dipirona AspDip 500mg Gotas 20ml",
+      "link": "/aspdip-500mg-ml-abacaxi-gotas-20ml/p",
+      "priceRange": {
+        "sellingPrice": {
+          "highPrice": 18.49,
+          "lowPrice": 18.49
+        },
+        "listPrice": {
+          "highPrice": 18.87,
+          "lowPrice": 18.87
+        }
+      },
+      "items": [
+        {
+          "sellers": [
+            {
+              "commertialOffer": {
+                "Price": 9.25,
+                "AvailableQuantity": 10000
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
