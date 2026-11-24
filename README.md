@@ -371,7 +371,9 @@ API:
 
 ## Licença
 
-Defina a licença do seu repositório (por exemplo, adicionando um arquivo `LICENSE`).
+Cestimo é software livre, licenciado sob a **GNU Affero General Public License v3.0** (AGPL-3.0). O texto completo está em [`LICENSE`](LICENSE).
+
+Em resumo: você pode usar, estudar, modificar e distribuir o código, inclusive para fazer o seu próprio comparador. Se você hospedar uma versão modificada como serviço na internet, precisa oferecer o código-fonte dela, com as suas modificações, aos usuários desse serviço, também sob a AGPL-3.0.
 
 
 ## Backup e teste automático
@@ -405,7 +407,7 @@ Defina a licença do seu repositório (por exemplo, adicionando um arquivo `LICE
 
 Com `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` e `PUBLIC_URL`, o cabeçalho mostra "Entrar". Quem entra ganha um menu com:
 
-- **Minhas listas:** salvar a lista atual com um nome (até 10), usar, renomear e apagar. Ficam na conta e aparecem em qualquer aparelho.
+- **Minhas listas:** salvar a lista atual com um nome (até 10). Se há um resultado na tela, a lista guarda também os preços; "Abrir" mostra a lista de compras (mais barato por item ou um mercado só) com o total, caixas para marcar o que já comprou (as marcações ficam na conta e valem em qualquer aparelho), a data dos preços e, depois de "Atualizar preços" (que substitui os preços), a variação por item e no total. Também dá para usar na busca, renomear e apagar.
 - **Produtos acompanhados:** botão "Acompanhar" em cada produto do resultado (até 20 por conta). O painel mostra o menor preço, onde está, a variação desde o início, um mini gráfico e o selo "Caiu X%" (queda de 5% ou mais). Uma rotina diária consulta cada produto acompanhado (iguais de contas diferentes, uma vez só) e grava no histórico.
 - **Excluir minha conta:** apaga listas, produtos, sessões, nome e e-mail.
 
