@@ -1,5 +1,6 @@
 import { accountView, loginFailed } from './account.js';
 import { ageLabel, changeBadge, changeLabel, changesSince, defaultListName, isStale, itemKey, listLabel, progress, sparkPoints, toggleChecked } from './panel.js';
+import { askConfirm, askText } from './modal.js';
 import { buildShoppingList, buildSingleStoreList } from './shoppingList.js';
 import { sparklinePath } from './trend.js';
 import { formatBRL } from './format.js';
@@ -56,7 +57,7 @@ export async function initMe(hooks) {
       if (!state.user) { location.href = '/api/auth/google'; return; }
       const { category, list, result } = hooks.getCurrent();
       if (!list.trim()) { toast('Escreva a lista antes de salvar.'); return; }
-      const name = window.prompt('Nome da lista:', defaultListName(new Date()));
+      const name = await askText({ title: 'Salvar lista', label: 'Nome da lista', value: defaultListName(new Date()), confirmLabel: 'Salvar' });
       if (name === null) return;
       try {
         await api('POST', '/api/me/lists', { name, category, list, ...(result ? { result } : {}) });
@@ -85,8 +86,8 @@ export async function initMe(hooks) {
         el('button', { type: 'button', role: 'menuitem', textContent: 'Minhas listas', onclick: () => open('lists') }),
         el('button', { type: 'button', role: 'menuitem', textContent: 'Produtos acompanhados', onclick: () => open('tracked') }),
         el('hr'),
-        el('button', { type: 'button', role: 'menuitem', textContent: 'Sair', onclick: logout }),
-        el('button', { type: 'button', role: 'menuitem', className: 'danger', textContent: 'Excluir minha conta', onclick: removeAccount }));
+        el('button', { type: 'button', role: 'menuitem', textContent: 'Minha conta', onclick: () => open('account') }),
+        el('button', { type: 'button', role: 'menuitem', textContent: 'Sair', onclick: logout }));
       const trigger = el('button', { type: 'button', className: 'user-btn', 'aria-haspopup': 'menu', 'aria-expanded': 'false', title: state.user.email },
         el('span', { className: 'avatar', textContent: view.label.slice(0, 1).toUpperCase(), 'aria-hidden': 'true' }),
         el('span', { className: 'who', textContent: view.label }),
@@ -105,7 +106,7 @@ export async function initMe(hooks) {
     location.reload();
   }
   async function removeAccount() {
-    if (!window.confirm('Excluir a conta apaga suas listas salvas e os produtos acompanhados. Isso não pode ser desfeito. Excluir?')) return;
+    if (!(await askConfirm({ title: 'Excluir minha conta?', message: 'Isso apaga suas listas salvas, os produtos acompanhados e seus dados de login. Não dá para desfazer.', confirmLabel: 'Excluir conta', danger: true }))) return;
     try { await api('DELETE', '/api/me'); location.reload(); } catch (e) { toast(e.message); }
   }
 
@@ -122,14 +123,14 @@ export async function initMe(hooks) {
 
   async function renderPanel() {
     const tabs = el('div', { className: 'tabs' },
-      ...[['lists', 'Minhas listas'], ['tracked', 'Acompanhando']].map(([id, label]) =>
+      ...[['lists', 'Minhas listas'], ['tracked', 'Acompanhando'], ['account', 'Conta']].map(([id, label]) =>
         el('button', { type: 'button', className: `tab${view === id ? ' on' : ''}`, textContent: label, onclick: () => { view = id; void renderPanel(); } })));
     const body = el('div', { className: 'panel-b' }, el('p', { className: 'muted-note', textContent: 'Carregando…' }));
     panel.replaceChildren(
       el('div', { className: 'panel-h' }, el('h2', { textContent: `Olá, ${state.user.name.split(/\s+/)[0]}` }), el('button', { type: 'button', className: 'btn sm', textContent: 'Fechar', onclick: closePanel })),
       tabs, body);
     try {
-      body.replaceChildren(...(view === 'lists' ? await listsView() : await trackedView()));
+      body.replaceChildren(...(view === 'lists' ? await listsView() : view === 'tracked' ? await trackedView() : accountPanel()));
     } catch (e) {
       body.replaceChildren(el('p', { className: 'muted-note', textContent: e.message }));
     }
@@ -154,12 +155,12 @@ export async function initMe(hooks) {
           l.result ? el('button', { type: 'button', className: 'btn sm brand', textContent: 'Abrir', onclick: () => openDetail(l) }) : null,
           el('button', { type: 'button', className: l.result ? 'btn sm' : 'btn sm brand', textContent: 'Usar na busca', onclick: () => { hooks.useList(l); closePanel(); } }),
           el('button', { type: 'button', className: 'btn sm', textContent: 'Renomear', onclick: async () => {
-            const name = window.prompt('Novo nome:', l.name);
+            const name = await askText({ title: 'Renomear lista', label: 'Novo nome', value: l.name, confirmLabel: 'Renomear' });
             if (name === null) return;
             try { await api('PATCH', `/api/me/lists/${l.id}`, { name }); await renderPanel(); } catch (e) { toast(e.message); }
           } }),
           el('button', { type: 'button', className: 'btn sm', textContent: 'Apagar', onclick: async () => {
-            if (!window.confirm(`Apagar a lista "${l.name}"?`)) return;
+            if (!(await askConfirm({ title: 'Apagar a lista?', message: `"${l.name}" será apagada, com os preços salvos e os itens marcados.`, confirmLabel: 'Apagar', danger: true }))) return;
             try { await api('DELETE', `/api/me/lists/${l.id}`); await renderPanel(); } catch (e) { toast(e.message); }
           } })));
     }))];
@@ -242,6 +243,19 @@ export async function initMe(hooks) {
       ].filter(Boolean));
     }
     draw();
+  }
+
+  /** Conta: dados de login, sair e, bem no fim e recolhido, excluir a conta. */
+  function accountPanel() {
+    return [
+      el('div', { className: 'row' },
+        el('div', { className: 'row-main' }, el('b', { textContent: state.user.name }), el('small', { textContent: state.user.email }), el('small', { textContent: 'Entrou com o Google' })),
+        el('div', { className: 'row-actions' }, el('button', { type: 'button', className: 'btn sm', textContent: 'Sair', onclick: logout }))),
+      el('details', { className: 'danger-zone' },
+        el('summary', { textContent: 'Excluir minha conta' }),
+        el('p', { className: 'muted-note', textContent: 'Apaga suas listas salvas, os produtos acompanhados, seu nome e seu e-mail. Não dá para desfazer.' }),
+        el('button', { type: 'button', className: 'btn sm danger-btn', textContent: 'Excluir minha conta…', onclick: removeAccount })),
+    ];
   }
 
   async function trackedView() {
