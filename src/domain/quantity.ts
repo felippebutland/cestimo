@@ -23,8 +23,17 @@ const UNIT_RE = /(\d+(?:[.,]\d+)?)\s*(kg|ml|lts|lt|litros|litro|unidades|unidade
 /** Contagem sem unidade: "C/30", "c20", "com 30" (exceto quando o número é seguido de kg/g/ml/l). */
 const COUNT_PREFIX_RE = /(?:\bc\/\s*|\bc(?=\d)|\bcom\s+)(\d+)\b(?![.,]?\d*\s*(?:kg|ml|lt|g|l)\b)/i;
 
+/**
+ * Contagem de remédio e afins: "20 comprimidos", "28 cápsulas", "10 ampolas", "15 sachês".
+ * Vale mais que gramas ou mililitros do mesmo texto, que costumam ser a dosagem ("1g") ou o tamanho da ampola ("5ml").
+ */
+export const PHARMA_COUNT_WORDS = 'comprimidos?|comps?|cps|cp|c[aá]psulas?|caps|dr[aá]geas?|sach[eê]s?|ampolas?|pastilhas?|tiras?|doses?|adesivos?|supositorios?|supositórios?';
+const PHARMA_COUNT_RE = new RegExp(`(\\d+)\\s*(?:${PHARMA_COUNT_WORDS})(?![a-zà-ú])`, 'i');
+
 /** Primeira quantidade do texto (a que aparece primeiro), em g, ml ou unidades. */
 export function extractQuantity(text: string): Quantity | null {
+  const pharma = PHARMA_COUNT_RE.exec(text);
+  if (pharma) return { value: Number(pharma[1]), dim: 'count' };
   const unit = UNIT_RE.exec(text);
   const count = COUNT_PREFIX_RE.exec(text);
   if (count && (!unit || count.index < unit.index)) return { value: Number(count[1]), dim: 'count' };

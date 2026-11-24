@@ -1,4 +1,4 @@
-import { extractQuantity } from './quantity.js';
+import { extractQuantity, PHARMA_COUNT_WORDS } from './quantity.js';
 import type { Offer } from './types.js';
 
 /** Abaixo disto o item não é considerado o mesmo produto. */
@@ -45,13 +45,19 @@ const isMultipack = (normalized: string): boolean => {
   return MULTIPACK_RE.test(normalized) || (COUNT_PACK_RE.test(normalized) && q !== null && q.dim !== 'count');
 };
 
+/** As palavras de contagem sem acento (o texto normalizado não tem acento). */
+const PHARMA_COUNT_WORDS_PLAIN = PHARMA_COUNT_WORDS.normalize('NFD').replace(/\p{M}/gu, '').replace('supositórios?|', '');
+/** "20 comprimidos" vira "20comprimidos" (um token só, tratado como tamanho). */
+const PHARMA_GLUE_RE = new RegExp(`(\\d)\\s+(${PHARMA_COUNT_WORDS_PLAIN})(?![a-z])`, 'g');
+
 const normalize = (s: string): string =>
   s
     .normalize('NFD')
     .replace(/\p{M}/gu, '')
     .toLowerCase()
     .replace(/(\d),(\d)/g, '$1.$2')
-    .replace(/(\d)\s+(kg|grs|gr|g|ml|lts|lt|litros|litro|l|un|und)\b/g, '$1$2');
+    .replace(/(\d)\s+(kg|grs|gr|g|ml|lts|lt|litros|litro|l|un|und)\b/g, '$1$2')
+    .replace(PHARMA_GLUE_RE, '$1$2');
 
 const tokens = (s: string): Set<string> => new Set(normalize(s).split(/[^a-z0-9.]+/).filter(Boolean).map(singular));
 
@@ -78,6 +84,28 @@ export function searchTerm(query: string): string {
  */
 const PLURAL_ONLY: Record<string, string> = { ovo: 'ovos' };
 
+/** Dosagens e fatores que definem o remédio/produto: "500mg", "0.9%", "400ui", "fps50". Comparadas como texto normalizado. */
+const STRENGTH_RE = /(\d+(?:\.\d+)?)\s*(mg|mcg|ug|ui|%)(?![a-z])|\bfps\s*(\d+)/g;
+const GRAMS_RE = /(\d+(?:\.\d+)?)\s*g(?![a-z])/g;
+const HAS_PHARMA_COUNT_RE = new RegExp(`\\d\\s*(?:${PHARMA_COUNT_WORDS_PLAIN})(?![a-z])`);
+const strengths = (normalized: string): string[] => {
+  const found = [...normalized.matchAll(STRENGTH_RE)].map((m) => (m[3] !== undefined ? `fps${m[3]}` : `${m[1]}${m[2]}`));
+  // "1g 30 comprimidos": o grama é a dosagem (1000mg); em produto sem comprimidos, grama é peso e fica de fora
+  const grams = HAS_PHARMA_COUNT_RE.test(normalized) ? [...normalized.matchAll(GRAMS_RE)].map((m) => `${Math.round(Number(m[1]) * 1000)}mg`) : [];
+  return [...found, ...grams];
+};
+const STRENGTH_MISMATCH = 0.4;
+const STRENGTH_MISSING = 0.8; // abaixo de CERTAIN_THRESHOLD: aparece, mas como "incerto"
+
+/** Dosagem pedida que não está no título: outra dosagem = outro produto (derruba a nota); título sem dosagem = incerto. */
+function strengthFactor(nq: string, nt: string): number {
+  const wanted = strengths(nq);
+  if (wanted.length === 0) return 1;
+  const have = new Set(strengths(nt));
+  if (wanted.every((s) => have.has(s))) return 1;
+  return have.size === 0 ? STRENGTH_MISSING : STRENGTH_MISMATCH;
+}
+
 /** Fração dos termos pedidos presentes no título, penalizada por tamanho divergente/ausente, extras e embalagem múltipla. */
 export function scoreMatch(query: string, title: string): number {
   const q = tokens(query);
@@ -89,15 +117,17 @@ export function scoreMatch(query: string, title: string): number {
   const tq = extractQuantity(nt);
   const sizeUncertain = qq !== null && (tq === null || tq.dim !== qq.dim || tq.value !== qq.value);
   const multipack = isMultipack(nt) && !isMultipack(nq);
-  return termRecall(queryTerms(query), t) * extrasFactor(q, t) * (sizeUncertain ? 0.5 : 1) * (multipack ? 0.5 : 1);
+  return termRecall(queryTerms(query), t, nt) * extrasFactor(q, t) * strengthFactor(nq, nt) * (sizeUncertain ? 0.5 : 1) * (multipack ? 0.5 : 1);
 }
 
 /** Contagem de unidades ("30un"): os buscadores das lojas não a entendem. */
 const COUNT_TOKEN_RE = /^\d+(un|und|unid|unidades?)$/;
-const SIZE_TOKEN_RE = /^\d+(\.\d+)?(kg|grs?|g|ml|lts?|litros?|l|un|und)$/;
+const SIZE_TOKEN_RE = new RegExp(`^\\d+(\\.\\d+)?(kg|grs?|g|ml|lts?|litros?|l|un|und|${PHARMA_COUNT_WORDS_PLAIN})$`);
+/** Dosagem escrita no texto ("500mg"): comparada pelo fator de dosagem, não como palavra solta. */
+const STRENGTH_TOKEN_RE = /^\d+(\.\d+)?(mg|mcg|ug|ui)$/;
 
 const isNeutral = (tok: string): boolean =>
-  tok.length <= 1 || /^\d+$/.test(tok) || /^tp?\d$/.test(tok) || SIZE_TOKEN_RE.test(tok) || NEUTRAL_WORDS.has(tok);
+  tok.length <= 1 || /^\d+$/.test(tok) || /^tp?\d$/.test(tok) || SIZE_TOKEN_RE.test(tok) || STRENGTH_TOKEN_RE.test(tok) || NEUTRAL_WORDS.has(tok);
 
 /** Penalidade por termos do título ausentes da consulta: variantes pesam mais que marca/outras palavras. */
 function extrasFactor(q: Set<string>, t: Set<string>): number {
@@ -115,10 +145,13 @@ export type Pick = { offer: Offer; score: number; sizeAdjusted: boolean };
 
 
 /** Fração dos termos pedidos (sem o tamanho) presentes no título. */
-function termRecall(q: Set<string>, t: Set<string>): number {
-  const terms = [...q].filter((tok) => !SIZE_TOKEN_RE.test(tok));
-  return terms.length === 0 ? 0 : terms.filter((tok) => t.has(tok)).length / terms.length;
+function termRecall(q: Set<string>, t: Set<string>, nt: string): number {
+  const terms = [...q].filter((tok) => !SIZE_TOKEN_RE.test(tok) && !STRENGTH_TOKEN_RE.test(tok));
+  // "comprimidos" solto na consulta vale se o título tem "10 comprimidos" (colados em um token só)
+  const present = (tok: string): boolean => t.has(tok) || (PHARMA_WORD_RE.test(tok) && HAS_PHARMA_COUNT_RE.test(nt));
+  return terms.length === 0 ? 0 : terms.filter(present).length / terms.length;
 }
+const PHARMA_WORD_RE = new RegExp(`^(?:${PHARMA_COUNT_WORDS_PLAIN})$`);
 
 const better = (a: Scored, b: Scored): boolean => {
   // Em "outro tamanho", com notas quase iguais, vence o tamanho mais próximo do pedido.
@@ -145,7 +178,7 @@ function sizeAdjustedScore(query: string, offer: Offer): Adjusted | null {
   const q = tokens(query);
   const t = tokens(offer.title);
   return {
-    score: termRecall(queryTerms(query), t) * extrasFactor(q, t),
+    score: termRecall(queryTerms(query), t, nt) * extrasFactor(q, t) * strengthFactor(nq, nt),
     distance: Math.abs(Math.log(tq.value / qq.value)),
     rank: offer.priceBRL * (qq.value / tq.value),
   };

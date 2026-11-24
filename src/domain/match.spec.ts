@@ -309,3 +309,52 @@ describe('searchTerm: palavra única no singular que as lojas só indexam no plu
   });
 });
 
+
+describe('farmácia: dosagem diferente é outro remédio', () => {
+  it.each([
+    ['Dipirona 500mg 10 comprimidos', 'Dipirona Monoidratada 1g 10 Comprimidos Genérico Cimed'],
+    ['Paracetamol 750mg 20 comprimidos', 'Paracetamol 500mg 20 Comprimidos Genérico'],
+    ['Omeprazol 20mg 28 cápsulas', 'Omeprazol 40mg 28 Cápsulas Genérico'],
+    ['Vitamina C 1g 30 comprimidos', 'Vitamina C 500mg 30 Comprimidos'],
+    ['Protetor solar FPS 50', 'Protetor Solar Sundown FPS 30 120ml'],
+  ])('"%s" x "%s" não é o mesmo produto', (query, title) => {
+    expect(scoreMatch(query, title)).toBeLessThan(MATCH_THRESHOLD);
+  });
+  it.each([
+    ['Dipirona 500mg 10 comprimidos', 'Dipirona Monoidratada 500mg 10 Comprimidos Genérico EMS'],
+    ['Paracetamol 750mg 20 comprimidos', 'Paracetamol Ems 750mg Com 20 Comprimidos'],
+    ['Omeprazol 20mg 28 cápsulas', 'Omeprazol Teuto 20mg Com 28 Cápsulas'],
+    ['Protetor solar FPS 50', 'Anasol FPS 50 - Protetor Solar 120g'],
+    ['Dorflex 36 comprimidos', 'Dorflex 36 Comprimidos Opella'],
+  ])('"%s" x "%s" é o mesmo produto', (query, title) => {
+    expect(scoreMatch(query, title)).toBeGreaterThanOrEqual(CERTAIN_THRESHOLD);
+  });
+  it('título sem dosagem escrita não é descartado, mas fica incerto (a dosagem pedida não aparece para conferir)', () => {
+    const s = scoreMatch('Dorflex 300mg 36 comprimidos', 'Dorflex 36 Comprimidos');
+    expect(s).toBeGreaterThanOrEqual(MATCH_THRESHOLD);
+    expect(s).toBeLessThan(CERTAIN_THRESHOLD);
+  });
+  it('sem dosagem na consulta, qualquer dosagem do título vale (a pessoa não especificou)', () => {
+    expect(scoreMatch('Dipirona comprimidos', 'Dipirona Sódica 500mg 10 Comprimidos')).toBeGreaterThanOrEqual(MATCH_THRESHOLD);
+  });
+  it('mg/ml e mg de comprimido são tokens diferentes de "ml" de volume (500mg/ml não vira tamanho)', () => {
+    expect(scoreMatch('Dipirona 500mg/ml gotas 20ml', 'Dipirona Monoidratada 500mg/ml 20ml Solução Gotas Genérico')).toBeGreaterThanOrEqual(MATCH_THRESHOLD);
+  });
+});
+
+describe('farmácia: quantidade diferente de comprimidos vira "outro tamanho" com preço equivalente', () => {
+  const offer = (title: string, priceBRL: number): Offer => ({ source: 'X', title, priceBRL });
+  it('só há a caixa de 10 e o pedido é 20: escolhe a de 10 como tamanho ajustado, com preço proporcional', () => {
+    const pick = pickBest('Paracetamol 750mg 20 comprimidos', [offer('Paracetamol 750mg 10 Comprimidos Genérico', 6)]);
+    expect(pick?.sizeAdjusted).toBe(true);
+    expect(pick?.offer.priceBRL).toBe(6);
+  });
+  it('quando existe a quantidade exata, ela vence a outra', () => {
+    const pick = pickBest('Paracetamol 750mg 20 comprimidos', [offer('Paracetamol 750mg 10 Comprimidos', 6), offer('Paracetamol 750mg 20 Comprimidos', 9)]);
+    expect(pick?.offer.priceBRL).toBe(9);
+    expect(pick?.sizeAdjusted).toBe(false);
+  });
+  it('dosagem errada não vira "tamanho ajustado": 1g de 10 comprimidos não substitui 500mg de 20', () => {
+    expect(pickBest('Dipirona 500mg 20 comprimidos', [offer('Dipirona 1g 10 Comprimidos', 8)])).toBeNull();
+  });
+});

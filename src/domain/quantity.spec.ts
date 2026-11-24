@@ -68,3 +68,26 @@ describe('extractQuantity: grafias comuns nas lojas', () => {
   });
 });
 
+
+describe('extractQuantity: farmácia (comprimidos, cápsulas, ampolas)', () => {
+  it.each([
+    ['Dipirona 500mg 10 comprimidos', 10],
+    ['Paracetamol Ems 750mg Com 20 Comprimidos', 20],
+    ['Omeprazol 20mg 28 Cápsulas Genérico', 28],
+    ['Dorflex 36 Comprimidos', 36],
+    ['Soro Fisiológico 0,9% 10 Ampolas de 5ml', 10],
+    ['Vitamina C 1g 30 Comprimidos Efervescentes', 30],
+    ['Probiótico 15 sachês', 15],
+    ['Dipirona 500mg 20 comps', 20],
+  ])('%s = %i unidades', (text, n) => {
+    expect(extractQuantity(text)).toEqual({ value: n, dim: 'count' });
+  });
+  it('a quantidade de comprimidos vale mais que a dosagem em gramas ou o volume da ampola, mesmo que apareçam antes', () => {
+    expect(extractQuantity('Dipirona 1g 20 Comprimidos')).toEqual({ value: 20, dim: 'count' });
+  });
+  it('sem contagem de comprimidos, o que já funcionava continua igual (peso e volume de produtos de higiene)', () => {
+    expect(extractQuantity('Creme dental 90g')).toEqual({ value: 90, dim: 'mass' });
+    expect(extractQuantity('Xarope 120ml')).toEqual({ value: 120, dim: 'volume' });
+    expect(extractQuantity('Dipirona 500mg/ml 20ml gotas')).toEqual({ value: 20, dim: 'volume' });
+  });
+});
