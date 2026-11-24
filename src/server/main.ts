@@ -16,7 +16,7 @@ import { refreshTracked } from './auth/trackedRefresh.js';
 import { notifyTrackedDrops } from './auth/trackedNotify.js';
 import { compare } from '../domain/compare.js';
 import { runBackup } from './backup.js';
-import { loadCmedFile } from './cmed.js';
+import { loadCmedFile, pharmacyMatchContext } from './cmed.js';
 import { runProbe } from './probe.js';
 import { withConcurrency } from '../sources/concurrency.js';
 import * as webpush from 'web-push';
@@ -120,7 +120,7 @@ const refreshTrackedItems = (items: Array<{ query: string; category: 'mercados' 
   return refreshTracked({
     items,
     hasToday: (query, category) => history.series(historyKey(query, category), 1).some((pt) => pt.day === day),
-    search: async (category, queries) => (await compare(queries, category === 'farmacias' ? pharmacySources : sources)).products,
+    search: async (category, queries) => (await compare(queries, category === 'farmacias' ? pharmacySources : sources, category === 'farmacias' && cmed ? { matchContext: pharmacyMatchContext(cmed) } : {})).products,
     record: (category, p) => {
       const rows = p.sources.flatMap((s) => (s.match && !s.match.uncertain ? [{ source: s.source, priceBRL: s.match.equivalentBRL }] : []));
       history.record(day, historyKey(p.query, category), rows);
@@ -165,11 +165,13 @@ setInterval(backupNow, 24 * 60 * 60 * 1000).unref();
 
 // Rotina diária dos avisos: busca uma vez cada produto acompanhado, compara com a referência e avisa quem pediu.
 const findPrices = createFindPrices(sources, {
-  onProducts: (products) => {
+  pharmacySources,
+  ...(cmed ? { matchContext: pharmacyMatchContext(cmed) } : {}),
+  onProducts: (products, category) => {
     const day = dayKey(Date.now(), utcOffsetMinutes);
     for (const p of products) {
       const rows = p.sources.flatMap((s) => (s.match && !s.match.uncertain ? [{ source: s.source, priceBRL: s.match.equivalentBRL }] : []));
-      history.record(day, p.query, rows);
+      history.record(day, historyKey(p.query, category), rows);
     }
   },
 });

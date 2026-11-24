@@ -358,3 +358,30 @@ describe('farmácia: quantidade diferente de comprimidos vira "outro tamanho" co
     expect(pickBest('Dipirona 500mg 20 comprimidos', [offer('Dipirona 1g 10 Comprimidos', 8)])).toBeNull();
   });
 });
+
+describe('remédio só pelo princípio ativo: marca e laboratório são o mesmo remédio', () => {
+  const offers = [
+    { source: 'x', title: 'Novalgina Dipirona 500mg 10 Comprimidos', priceBRL: 14.37 },
+    { source: 'x', title: 'Dipirona Ems 500mg Com 10 Comprimidos', priceBRL: 3.8 },
+    { source: 'x', title: 'Dipirona Prati 500mg Com 10 Comprimidos', priceBRL: 2.89 },
+    { source: 'x', title: 'Lisador Dipirona 500mg + Adifenina 10mg 10 Comprimidos', priceBRL: 23.59 },
+    { source: 'x', title: 'Dipirona Gotas 500mg/ml 10ml', priceBRL: 1.5 },
+  ];
+  // o que NÃO é marca/laboratório: princípios ativos e formas (o servidor monta isto a partir da lista oficial)
+  const ctx = { ignorable: (tok: string) => !['dipirona', 'adifenina', 'gotas', 'xarope', 'solucao'].includes(tok) };
+  const query = 'Dipirona 500mg 10 comprimidos';
+
+  it('com o contexto, vence o mais barato entre marca e genérico do mesmo remédio', () => {
+    expect(pickBest(query, offers, ctx)?.offer.priceBRL).toBe(2.89);
+  });
+  it('associação com outra substância (adifenina) e outra forma (gotas) não entram', () => {
+    const ranked = rankCandidates(query, offers, 5, ctx).map((c) => c.offer.title);
+    expect(ranked.indexOf('Dipirona Prati 500mg Com 10 Comprimidos')).toBeLessThan(ranked.indexOf('Lisador Dipirona 500mg + Adifenina 10mg 10 Comprimidos') === -1 ? 99 : ranked.indexOf('Lisador Dipirona 500mg + Adifenina 10mg 10 Comprimidos'));
+    expect(pickBest(query, offers, ctx)?.offer.title).not.toMatch(/Adifenina|Gotas/);
+  });
+  it('sem o contexto nada muda (mercados e consultas com marca seguem como antes)', () => {
+    const noCtx = pickBest(query, offers);
+    expect(noCtx).not.toBeNull();
+    expect(pickBest('Novalgina 500mg 10 comprimidos', offers)?.offer.title).toMatch(/Novalgina/);
+  });
+});

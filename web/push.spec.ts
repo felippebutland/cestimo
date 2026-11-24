@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { pushMode, urlBase64ToUint8Array, queriesToWatch, parsePushState } from './push.js';
+import { pushMode, urlBase64ToUint8Array, queriesToWatch, parsePushState, watchKeys } from './push.js';
 
 const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1';
 const CHROME = 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Mobile Safari/537.36';
@@ -47,5 +47,15 @@ describe('parsePushState', () => {
     expect(parsePushState('{"on":"sim"}')).toEqual({ on: false });
     expect(parsePushState('lixo')).toEqual({ on: false });
     expect(parsePushState(null)).toEqual({ on: false });
+  });
+});
+
+describe('watchKeys (produtos do aviso por lista, por categoria)', () => {
+  const products = [{ query: 'Dipirona 500mg', stats: {} }, { query: 'Sal 1kg', stats: {} }, { query: 'Sem preço', stats: null }];
+  it('mercados: o texto do produto, como sempre', () => {
+    expect(watchKeys(products, 'mercados')).toEqual(['Dipirona 500mg', 'Sal 1kg']);
+  });
+  it('farmácias: cada produto leva o prefixo "farmacias: " (o servidor busca nas farmácias)', () => {
+    expect(watchKeys(products, 'farmacias')).toEqual(['farmacias: Dipirona 500mg', 'farmacias: Sal 1kg']);
   });
 });

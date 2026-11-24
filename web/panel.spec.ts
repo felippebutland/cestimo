@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { pushPanelState, ageLabel, changeLabel, changesSince, isStale, itemKey, progress, toggleChecked, changeBadge, defaultListName, listLabel, sparkPoints } from './panel.js';
+import { sizesDiffer, pushPanelState, ageLabel, changeLabel, changesSince, isStale, itemKey, progress, toggleChecked, changeBadge, defaultListName, listLabel, sparkPoints } from './panel.js';
 
 const base = { latestBRL: 10, latestSource: 'Comper', latestDay: '2026-11-24', changePct: null, dropPct: null, dropped: false, spark: [10] };
 
@@ -130,5 +130,24 @@ describe('pushPanelState (aviso no celular dos preços que acompanho)', () => {
   });
   it('ligado: botão para desativar e nota de confirmação', () => {
     expect(pushPanelState({ mode: 'ready', on: true })).toMatchObject({ show: true, action: 'disable', button: 'Desativar aviso neste aparelho' });
+  });
+});
+
+describe('sizesDiffer (embalagens de tamanhos diferentes no mesmo produto)', () => {
+  const m = (priceBRL: number, unitPriceBRL: number, extra = {}) => ({ source: 'x', status: 'ok', match: { priceBRL, equivalentBRL: priceBRL, unitPriceBRL, unit: 'un', sizeAdjusted: false, uncertain: false, ...extra } });
+  it('fraldas de 40, 70 e 84 unidades: avisa para comparar pelo preço por unidade', () => {
+    expect(sizesDiffer({ sources: [m(45.9, 1.1475), m(99.99, 1.4284), m(143.93, 1.7134)] })).toBe(true);
+  });
+  it('todas do mesmo tamanho: não avisa', () => {
+    expect(sizesDiffer({ sources: [m(40, 1), m(42, 1.05), m(39, 0.975)] })).toBe(false);
+  });
+  it('diferença pequena (menos de 5%) não conta', () => {
+    expect(sizesDiffer({ sources: [m(100, 1), m(102, 1)] })).toBe(false);
+  });
+  it('itens incertos ou já ajustados ao tamanho pedido ficam de fora; sem preço por unidade, também', () => {
+    expect(sizesDiffer({ sources: [m(45.9, 1.1475), m(99.99, 1.4284, { uncertain: true })] })).toBe(false);
+    expect(sizesDiffer({ sources: [m(45.9, 1.1475), m(99.99, 1.4284, { sizeAdjusted: true })] })).toBe(false);
+    expect(sizesDiffer({ sources: [m(45.9, 1.1475), { source: 'y', status: 'ok', match: { priceBRL: 10, equivalentBRL: 10, sizeAdjusted: false, uncertain: false } }] })).toBe(false);
+    expect(sizesDiffer({ sources: [{ source: 'z', status: 'erro' }, m(45.9, 1.1475)] })).toBe(false);
   });
 });

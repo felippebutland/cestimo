@@ -86,3 +86,15 @@ export function pushPanelState({ mode, on }) {
     ? { show: true, action: 'disable', button: 'Desativar aviso neste aparelho', note: 'Aviso ativo: quando o preço de um produto baixar 5% ou mais, mandamos uma notificação para este aparelho.' }
     : { show: true, action: 'enable', button: '🔔 Ativar aviso neste aparelho', note: 'Receba uma notificação neste aparelho quando o preço de um produto que você acompanha baixar 5% ou mais.' };
 }
+
+/**
+ * Os itens achados vêm em embalagens de tamanhos diferentes (40, 70 e 84 fraldas)? Então o menor preço total não é o mais barato
+ * de verdade, e vale comparar pelo preço por unidade. Só conta item confiável, no tamanho em que foi achado.
+ */
+export function sizesDiffer(product) {
+  const packs = product.sources.flatMap((s) => {
+    const m = s.match;
+    return m && !m.uncertain && !m.sizeAdjusted && m.unitPriceBRL ? [m.priceBRL / m.unitPriceBRL] : [];
+  });
+  return packs.length >= 2 && Math.max(...packs) / Math.min(...packs) > 1.05;
+}

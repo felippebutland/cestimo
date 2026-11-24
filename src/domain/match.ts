@@ -107,7 +107,7 @@ function strengthFactor(nq: string, nt: string): number {
 }
 
 /** Fração dos termos pedidos presentes no título, penalizada por tamanho divergente/ausente, extras e embalagem múltipla. */
-export function scoreMatch(query: string, title: string): number {
+export function scoreMatch(query: string, title: string, ctx?: MatchContext): number {
   const q = tokens(query);
   if (q.size === 0) return 0;
   const t = tokens(title);
@@ -117,7 +117,7 @@ export function scoreMatch(query: string, title: string): number {
   const tq = extractQuantity(nt);
   const sizeUncertain = qq !== null && (tq === null || tq.dim !== qq.dim || tq.value !== qq.value);
   const multipack = isMultipack(nt) && !isMultipack(nq);
-  return termRecall(queryTerms(query), t, nt) * extrasFactor(q, t) * strengthFactor(nq, nt) * (sizeUncertain ? 0.5 : 1) * (multipack ? 0.5 : 1);
+  return termRecall(queryTerms(query), t, nt) * extrasFactor(q, t, ctx) * strengthFactor(nq, nt) * (sizeUncertain ? 0.5 : 1) * (multipack ? 0.5 : 1);
 }
 
 /** Contagem de unidades ("30un"): os buscadores das lojas não a entendem. */
@@ -126,12 +126,18 @@ const SIZE_TOKEN_RE = new RegExp(`^\\d+(\\.\\d+)?(kg|grs?|g|ml|lts?|litros?|l|un
 /** Dosagem escrita no texto ("500mg"): comparada pelo fator de dosagem, não como palavra solta. */
 const STRENGTH_TOKEN_RE = /^\d+(\.\d+)?(mg|mcg|ug|ui)$/;
 
+/**
+ * Contexto de casamento opcional. `ignorable`: palavras do título que não pesam contra o item (marca e laboratório, quando o pedido é
+ * só o princípio ativo: "dipirona 500mg" aceita Novalgina, Ems ou Prati, que são o mesmo remédio). Sem contexto, nada muda.
+ */
+export type MatchContext = { ignorable?: (token: string) => boolean };
+
 const isNeutral = (tok: string): boolean =>
   tok.length <= 1 || /^\d+$/.test(tok) || /^tp?\d$/.test(tok) || SIZE_TOKEN_RE.test(tok) || STRENGTH_TOKEN_RE.test(tok) || NEUTRAL_WORDS.has(tok);
 
 /** Penalidade por termos do título ausentes da consulta: variantes pesam mais que marca/outras palavras. */
-function extrasFactor(q: Set<string>, t: Set<string>): number {
-  const extras = [...t].filter((tok) => !q.has(tok) && !isNeutral(tok));
+function extrasFactor(q: Set<string>, t: Set<string>, ctx?: MatchContext): number {
+  const extras = [...t].filter((tok) => !q.has(tok) && !isNeutral(tok) && !(ctx?.ignorable?.(tok) && !VARIANT_WORDS.has(tok)));
   const variants = extras.filter((tok) => VARIANT_WORDS.has(tok)).length;
   const others = Math.min(extras.length - variants, MAX_OTHER_EXTRAS);
   return VARIANT_FACTOR ** variants * OTHER_EXTRA_FACTOR ** others;
@@ -168,7 +174,7 @@ type Adjusted = { score: number; distance: number; rank: number };
  * Nota do mesmo produto em outro tamanho (mesma dimensão), sem o corte de certeza.
  * Devolve null quando não se aplica: dimensão diferente, tamanho igual, sem tamanho ou embalagem múltipla.
  */
-function sizeAdjustedScore(query: string, offer: Offer): Adjusted | null {
+function sizeAdjustedScore(query: string, offer: Offer, ctx?: MatchContext): Adjusted | null {
   const nq = normalize(query);
   const nt = normalize(offer.title);
   const qq = extractQuantity(nq);
@@ -178,17 +184,17 @@ function sizeAdjustedScore(query: string, offer: Offer): Adjusted | null {
   const q = tokens(query);
   const t = tokens(offer.title);
   return {
-    score: termRecall(queryTerms(query), t, nt) * extrasFactor(q, t) * strengthFactor(nq, nt),
+    score: termRecall(queryTerms(query), t, nt) * extrasFactor(q, t, ctx) * strengthFactor(nq, nt),
     distance: Math.abs(Math.log(tq.value / qq.value)),
     rank: offer.priceBRL * (qq.value / tq.value),
   };
 }
 
 /** Candidato do mesmo produto em outro tamanho, bom o bastante para comparar pelo preço equivalente. */
-function sizeAdjustedCandidate(query: string, offer: Offer): Scored | null {
-  const adjusted = sizeAdjustedScore(query, offer);
+function sizeAdjustedCandidate(query: string, offer: Offer, ctx?: MatchContext): Scored | null {
+  const adjusted = sizeAdjustedScore(query, offer, ctx);
   if (!adjusted || adjusted.score < CERTAIN_THRESHOLD) return null;
-  return { offer, ...adjusted, words: tokens(offer.title).size };
+  return { offer, ...adjusted, words: ctx ? 0 : tokens(offer.title).size };
 }
 
 export type Candidate = { offer: Offer; relevance: number; sizeAdjusted: boolean };
@@ -200,20 +206,21 @@ const CANDIDATE_FLOOR = 0.3;
  * Os itens mais parecidos com o pedido, do mais ao menos relevante, para a pessoa escolher quando o app errar.
  * Inclui o que o `pickBest` recusaria (para o caso "sem resultado") e não repete o mesmo item.
  */
-export function rankCandidates(query: string, offers: Offer[], limit = 5): Candidate[] {
+export function rankCandidates(query: string, offers: Offer[], limit = 5, ctx?: MatchContext): Candidate[] {
   const seen = new Set<string>();
   return offers
     .flatMap((offer) => {
       const key = `${offer.title}|${offer.priceBRL}`;
       if (seen.has(key)) return [];
       seen.add(key);
-      const adjusted = sizeAdjustedScore(query, offer);
-      const relevance = adjusted ? adjusted.score : scoreMatch(query, offer.title);
+      const adjusted = sizeAdjustedScore(query, offer, ctx);
+      const relevance = adjusted ? adjusted.score : scoreMatch(query, offer.title, ctx);
       if (relevance < CANDIDATE_FLOOR) return [];
       const scored: Scored & { sizeAdjusted: boolean } = {
         offer,
         score: relevance,
-        words: tokens(offer.title).size,
+        // com contexto (remédio pelo princípio ativo), notas iguais desempatam pelo preço, não pelo título mais curto
+        words: ctx ? 0 : tokens(offer.title).size,
         rank: adjusted ? adjusted.rank : offer.priceBRL,
         distance: adjusted ? adjusted.distance : 0,
         sizeAdjusted: adjusted !== null,
@@ -225,11 +232,11 @@ export function rankCandidates(query: string, offers: Offer[], limit = 5): Candi
     .map(({ offer, score, sizeAdjusted }) => ({ offer, relevance: score, sizeAdjusted }));
 }
 
-export function pickBest(query: string, offers: Offer[]): Pick | null {
+export function pickBest(query: string, offers: Offer[], ctx?: MatchContext): Pick | null {
   const exact = best(
-    offers.map((offer): Scored => ({ offer, score: scoreMatch(query, offer.title), words: tokens(offer.title).size, rank: offer.priceBRL, distance: 0 })),
+    offers.map((offer): Scored => ({ offer, score: scoreMatch(query, offer.title, ctx), words: ctx ? 0 : tokens(offer.title).size, rank: offer.priceBRL, distance: 0 })),
   );
   if (exact && exact.score >= MATCH_THRESHOLD) return { offer: exact.offer, score: exact.score, sizeAdjusted: false };
-  const adjusted = best(offers.flatMap((o) => sizeAdjustedCandidate(query, o) ?? []));
+  const adjusted = best(offers.flatMap((o) => sizeAdjustedCandidate(query, o, ctx) ?? []));
   return adjusted ? { offer: adjusted.offer, score: adjusted.score, sizeAdjusted: true } : null;
 }

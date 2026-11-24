@@ -1,4 +1,5 @@
 import { dropMessage, evaluateDrop } from './drops.js';
+import { stripPharmacyPrefix } from './findPrices.js';
 import type { PushSubscription, SubscriptionStore } from './subscriptions.js';
 
 export type FoundPrice = { priceBRL: number; source: string };
@@ -25,7 +26,7 @@ export async function runDailyCheck(deps: { store: SubscriptionStore; find: Find
     const decision = evaluateDrop(previous, price.priceBRL);
     if (decision.action !== 'keep') store.setRef(query, decision.ref);
     if (decision.action === 'notify' && previous !== undefined) {
-      drops.set(query, { query, source: price.source, priceBRL: price.priceBRL, previousBRL: previous, pct: decision.pct });
+      drops.set(query, { query: stripPharmacyPrefix(query), source: price.source, priceBRL: price.priceBRL, previousBRL: previous, pct: decision.pct });
     }
   }
   summary.drops = drops.size;

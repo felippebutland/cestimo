@@ -1,4 +1,4 @@
-import { findCeiling, type CmedIndex } from './cmed.js';
+import { findCeiling, pharmacyMatchContext, type CmedIndex } from './cmed.js';
 import { isPushEndpoint, parseSubscribeBody, type SubscriptionStore } from './push/subscriptions.js';
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -176,6 +176,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   };
 
   app.get('/healthz', () => ({ ok: true }));
+  const pharmacyCtx = deps.cmed ? pharmacyMatchContext(deps.cmed) : undefined;
   const sourcesOf = (category: Category): PriceSource[] => (category === 'farmacias' ? deps.pharmacySources ?? [] : deps.sources);
   const categoryIds: Category[] = (deps.pharmacySources?.length ?? 0) > 0 ? ['mercados', 'farmacias'] : ['mercados'];
   app.get('/api/config', () => ({
@@ -375,7 +376,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     const started = Date.now();
     try {
       if (!ignore) list.forEach((q) => top.record(normalizeQuery(q)));
-      const result = await compare(list, sourcesOf(category), { observer, onProgress: (done) => onProgress?.(done) });
+      const result = await compare(list, sourcesOf(category), { observer, onProgress: (done) => onProgress?.(done), ...(category === 'farmacias' && pharmacyCtx ? { matchContext: pharmacyCtx } : {}) });
       const seconds = (Date.now() - started) / 1000;
       if (ignore) {
         outcome('ignored');

@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
+import type { MatchContext } from '../domain/match.js';
 import { extractQuantity } from '../domain/quantity.js';
 
 /**
@@ -56,6 +57,39 @@ const words = (s: string): string[] => plain(s).split(/[^a-z0-9.]+/).filter(Bool
  * cartelas ou frascos ("CT 50 FR", "CT DISP 10 BL"). "CT BL" ou "CT FR" (uma cartela/frasco) é a embalagem comum.
  */
 const isClinicPack = (presentation: string): boolean => /\(emb\b|\bcx\b|\bct\s+(?:disp\s+)?(?:[2-9]|\d{2,})\s/i.test(presentation);
+
+const singularWord = (w: string): string => (/^[a-z]{4,}$/.test(w) && w.endsWith('s') && !/(ss|us|is)$/.test(w) ? w.slice(0, -1) : w);
+/** Forma, via e público: mudam o remédio, então nunca valem como "marca ou laboratório" (que é ignorada). */
+const NOT_A_BRAND = new Set([
+  'xarope', 'gotas', 'gota', 'solucao', 'suspensao', 'gel', 'creme', 'pomada', 'spray', 'injetavel', 'ampola', 'supositorio', 'pastilha',
+  'efervescente', 'sublingual', 'pediatrico', 'pediatrica', 'adulto', 'infantil', 'oral', 'topico', 'capsula', 'comprimido', 'comp', 'xpe', 'gts',
+  'colirio', 'nasal', 'otologico', 'shampoo', 'sabonete', 'locao', 'emulsao', 'po', 'sache',
+]);
+
+/**
+ * Contexto de casamento para consultas de remédio feitas só pelo princípio ativo ("dipirona 500mg 10 comprimidos"): Novalgina,
+ * Ems e Prati são o mesmo remédio, então marca e laboratório no título não pesam contra, e o mais barato vence. Se a pessoa escreve
+ * uma marca ("Novalgina 500mg") ou o pedido não é um remédio da lista oficial, não há contexto e tudo funciona como antes.
+ * Outras substâncias no título (associações, como dipirona + adifenina) e outras formas (gotas, xarope) continuam pesando contra.
+ */
+export function pharmacyMatchContext(index: CmedIndex): (query: string) => MatchContext | undefined {
+  const substance = new Set<string>();
+  for (const e of index.entries) for (const w of words(e.row.s)) { substance.add(w); substance.add(singularWord(w)); }
+  const neutral = (w: string): boolean => STOP.has(w) || NOT_A_NAME.test(w) || /^\d+(\.\d+)?[a-z]+$/.test(w) || w in FORM_WORDS;
+  const isSubstance = (w: string): boolean => substance.has(w) || substance.has(singularWord(w));
+  return (query) => {
+    const named = words(query).filter((w) => !neutral(w));
+    if (named.length === 0 || !named.every(isSubstance)) return undefined;
+    // palavras do nome do próprio remédio (o sal: "monoidratada", "sódica"), só das linhas de uma substância só (associações não valem)
+    const own = new Set<string>();
+    for (const e of index.entries) {
+      const w = words(e.row.s);
+      if (!e.multi && named.every((n) => w.includes(n) || w.includes(singularWord(n)))) for (const x of w) if (!named.includes(x)) { own.add(x); own.add(singularWord(x)); }
+    }
+    const ignorable = (token: string): boolean => own.has(token) || (!substance.has(token) && !NOT_A_BRAND.has(token) && !NOT_A_BRAND.has(singularWord(token)));
+    return { ignorable };
+  };
+}
 
 export function createCmedIndex(rows: CmedRow[], listDate: string | null = null): CmedIndex {
   return {

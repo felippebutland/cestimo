@@ -1,4 +1,4 @@
-import { CERTAIN_THRESHOLD, pickBest, rankCandidates, searchTerm } from './match.js';
+import { CERTAIN_THRESHOLD, pickBest, rankCandidates, searchTerm, type MatchContext } from './match.js';
 import { extractQuantity, scaleToQuantity, unitLabel, unitPrice } from './quantity.js';
 import { basketTotals, computeStats, type Basket, type Priced, type Stats } from './stats.js';
 import { withTimeout } from './timeout.js';
@@ -47,9 +47,9 @@ const safely = (observer: Observer | undefined, event: SourceEvent): void => {
   }
 };
 
-async function querySource(query: string, source: PriceSource, timeoutMs: number, observer?: Observer): Promise<SourceResult> {
+async function querySource(query: string, source: PriceSource, timeoutMs: number, observer?: Observer, ctx?: MatchContext): Promise<SourceResult> {
   const started = Date.now();
-  const result = await runSource(query, source, timeoutMs);
+  const result = await runSource(query, source, timeoutMs, ctx);
   safely(observer, { query, source: source.name, status: result.status, ms: Date.now() - started, matched: result.match !== undefined, reason: result.reason });
   return result;
 }
@@ -73,11 +73,11 @@ function buildMatch(query: string, offer: Offer, score: number, sizeAdjusted: bo
 
 const sameItem = (a: Offer, b: Offer): boolean => a.title === b.title && a.priceBRL === b.priceBRL;
 
-async function runSource(query: string, source: PriceSource, timeoutMs: number): Promise<SourceResult> {
+async function runSource(query: string, source: PriceSource, timeoutMs: number, ctx?: MatchContext): Promise<SourceResult> {
   try {
     const offers = (await withTimeout(source.search(searchTerm(query)), timeoutMs)).filter(validPrice);
-    const best = pickBest(query, offers);
-    const alternatives = rankCandidates(query, offers, MAX_ALTERNATIVES + 1)
+    const best = pickBest(query, offers, ctx);
+    const alternatives = rankCandidates(query, offers, MAX_ALTERNATIVES + 1, ctx)
       .filter((c) => !best || !sameItem(c.offer, best.offer))
       .slice(0, MAX_ALTERNATIVES)
       .map((c) => buildMatch(query, c.offer, c.relevance, c.sizeAdjusted));
@@ -134,13 +134,13 @@ export function recompute(products: Array<{ sources: SourceResult[] }>): { stats
 export async function compare(
   list: string[],
   sources: PriceSource[],
-  opts: { timeoutMs?: number; observer?: Observer; onProgress?: (done: number, total: number) => void } = {},
+  opts: { timeoutMs?: number; observer?: Observer; onProgress?: (done: number, total: number) => void; /** Contexto de casamento por consulta (ex.: remédio só pelo princípio ativo). */ matchContext?: (query: string) => MatchContext | undefined } = {},
 ): Promise<CompareResult> {
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   let finished = 0;
   const products = await Promise.all(
     list.map(async (query): Promise<ProductResult> => {
-      const results = flagOutliers(await Promise.all(sources.map((s) => querySource(query, s, timeoutMs, opts.observer))));
+      const results = flagOutliers(await Promise.all(sources.map((s) => querySource(query, s, timeoutMs, opts.observer, opts.matchContext?.(query)))));
       finished += 1;
       try {
         opts.onProgress?.(finished, list.length);

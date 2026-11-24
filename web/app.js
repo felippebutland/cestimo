@@ -6,10 +6,11 @@ import { normalizeMarket, visibleMarkets } from './marketFilter.js';
 import { cmedText, cmedTitle } from './cmed.js';
 import { initMe } from './me.js';
 import { updateAction } from './update.js';
+import { sizesDiffer } from './panel.js';
 import { WELCOME_KEY, shouldWelcome, sourcesSummary } from './welcome.js';
 import { THEME_COLOR, THEME_KEY, THEMES, nextTheme, normalizeTheme, resolveTheme } from './theme.js';
 import { CATEGORY_TEXT, normalizeCategory, savedKey, sourcesFor } from './category.js';
-import { parsePushState, pushMode, queriesToWatch, urlBase64ToUint8Array } from './push.js';
+import { parsePushState, pushMode, urlBase64ToUint8Array, watchKeys } from './push.js';
 import { sparklinePath, summarize } from './trend.js';
 import { formatDay, parseSaved, snapshot, variations } from './history.js';
 import { parseShareHash, shareUrl, toShareBody } from './share.js';
@@ -154,6 +155,11 @@ function cell(s, isBest, onSwap) {
   return td;
 }
 
+/** Embalagens de tamanhos diferentes: o menor preço total pode não ser o mais barato; aponta o preço por unidade. */
+function sizesNote(p) {
+  return sizesDiffer(p) ? el('div', { className: 'sub sizes-note', textContent: '⚠ Tamanhos de embalagem diferentes: compare pelo preço por unidade (kg, L ou un), à direita de cada loja.' }) : null;
+}
+
 /** "Acompanhar" no produto: só aparece quando o login existe no servidor. */
 function trackButton(p) {
   if (!me) return null;
@@ -226,7 +232,7 @@ function comparisonPanel(data, onSwap, baseline, actions, series, market = null)
     const rank = rankSources(shown);
     // data-label e --o só valem no celular, onde cada produto vira um cartão com um mercado por linha (ver o CSS).
     const labeled = (td, label, order) => { td.dataset.label = label; td.style.setProperty('--o', String(order)); return td; };
-    return el('tr', {}, el('td', { className: 'prod' }, el('span', { className: 'prod-name', textContent: p.query }), trendLine(trends[pi], since), historyLine(series?.[pi]), cmedLine(p.cmed), trackButton(p)),
+    return el('tr', {}, el('td', { className: 'prod' }, el('span', { className: 'prod-name', textContent: p.query }), trendLine(trends[pi], since), historyLine(series?.[pi]), cmedLine(p.cmed), sizesNote(p), trackButton(p)),
       ...shown.map((s, si) => labeled(cell(s, s.source === best, () => onSwap(pi, s.source)), s.source, rank[si])),
       labeled(el('td', { className: 'cell summary' }, el('span', { className: 'px', textContent: p.stats ? formatBRL(p.stats.averageBRL) : '—' })), 'Média dos mercados', 90),
       labeled(el('td', { className: 'cell summary' }, el('span', { className: 'px', textContent: p.stats ? `${formatBRL(p.stats.diffBRL)}${' '}(${formatPct(p.stats.diffPct)})` : '—' })), 'Mais barato × mais caro', 91));
@@ -453,10 +459,10 @@ const postJson = (url, body) => fetch(url, { method: 'POST', headers: { 'content
 
 /** Quem já ativou os avisos: manda a lista nova para o servidor acompanhar os produtos de agora. Falha = segue com a lista antiga. */
 async function syncPush(data) {
-  if (category !== 'mercados' || !readPush().on || currentPushMode() !== 'ready') return;
+  if (!readPush().on || currentPushMode() !== 'ready') return;
   try {
     const sub = await (await navigator.serviceWorker.ready).pushManager.getSubscription();
-    const queries = queriesToWatch(data.products);
+    const queries = watchKeys(data.products, category);
     if (sub && queries.length > 0) await postJson('/api/push/subscribe', { subscription: sub.toJSON(), queries });
   } catch {
     // sem rede: tenta de novo na próxima comparação
@@ -471,7 +477,7 @@ async function enablePush(data) {
   const { key } = await keyRes.json();
   const reg = await navigator.serviceWorker.ready;
   const sub = (await reg.pushManager.getSubscription()) ?? (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(key) }));
-  const queries = queriesToWatch(data.products);
+  const queries = watchKeys(data.products, category);
   if (queries.length === 0) throw new Error('Nenhum produto da lista tem preço para acompanhar.');
   const res = await postJson('/api/push/subscribe', { subscription: sub.toJSON(), queries });
   if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `erro ${res.status}`);
@@ -489,7 +495,7 @@ async function disablePush() {
 
 function pushControls() {
   const mode = currentPushMode();
-  if (mode === 'unsupported' || category !== 'mercados') return null; // aviso de queda de preço: só para mercados por enquanto
+  if (mode === 'unsupported') return null;
   const note = el('span', { className: 'muted-note' });
   const button = el('button', { type: 'button', className: 'btn' });
   const paint = () => { button.textContent = readPush().on ? 'Desativar avisos' : '🔔 Avisar quando baixar'; };

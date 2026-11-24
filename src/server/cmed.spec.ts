@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { createCmedIndex, findCeiling, parsePresentation, type CmedRow } from './cmed.js';
+import { createCmedIndex, findCeiling, parsePresentation, pharmacyMatchContext, type CmedRow } from './cmed.js';
 
 const row = (s: string, p: string, a: string, pmc: number | null, t = 'Genérico'): CmedRow => ({ s, p, a, t, pmc });
 
@@ -119,5 +119,33 @@ describe('findCeiling: genérico x marca', () => {
       row('LOSARTANA', 'COZAAR', '50 MG COM CT BL X 30', 47.9, 'Referência'),
     ]);
     expect(findCeiling(idx, 'Losartana 50mg 30 comprimidos')).toEqual({ minBRL: 16.4, maxBRL: 21, n: 2, generic: true });
+  });
+});
+
+describe('pharmacyMatchContext (remédio pelo princípio ativo: marca e laboratório não pesam)', () => {
+  const ctxOf = pharmacyMatchContext(index);
+
+  it('pedido só com o princípio ativo, dosagem e quantidade tem contexto', () => {
+    expect(ctxOf('Dipirona 500mg 10 comprimidos')).toBeDefined();
+    expect(ctxOf('Paracetamol 750mg 20 comprimidos')).toBeDefined();
+    expect(ctxOf('omeprazol 20mg')).toBeDefined();
+  });
+  it('pedido com marca, ou que não é remédio da lista, não tem contexto (nada muda)', () => {
+    expect(ctxOf('Novalgina 500mg 10 comprimidos')).toBeUndefined();
+    expect(ctxOf('Dorflex 36 comprimidos')).toBeUndefined();
+    expect(ctxOf('Fralda Pampers M')).toBeUndefined();
+    expect(ctxOf('Protetor solar FPS 50')).toBeUndefined();
+    expect(ctxOf('500mg 10 comprimidos')).toBeUndefined();
+  });
+  it('marca e laboratório são ignoráveis; substâncias e formas, não', () => {
+    const { ignorable } = ctxOf('Dipirona 500mg 10 comprimidos')!;
+    for (const marca of ['novalgina', 'ems', 'prati', 'generico', 'medley']) expect(ignorable!(marca)).toBe(true);
+    for (const outra of ['dipirona', 'orfenadrina', 'cafeina', 'gotas', 'xarope', 'solucao', 'gel']) expect(ignorable!(outra)).toBe(false);
+  });
+  it('o sal da própria substância (dipirona monoidratada/sódica) não pesa contra: é o mesmo remédio', () => {
+    const { ignorable } = ctxOf('Dipirona 500mg 10 comprimidos')!;
+    expect(ignorable!('monoidratada')).toBe(true);
+    // mas "monoidratada" não vira desculpa para associação: a outra substância continua pesando
+    expect(ignorable!('orfenadrina')).toBe(false);
   });
 });

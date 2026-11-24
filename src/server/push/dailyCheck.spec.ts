@@ -60,4 +60,13 @@ describe('runDailyCheck', () => {
     await runDailyCheck({ store, find: prices({ 'sal 1kg': { priceBRL: 4, source: 'Comper' } }), send });
     expect(sent).toHaveLength(1);
   });
+  it('aviso de farmácia: o texto não mostra o prefixo interno "farmacias: "', async () => {
+    const store = createSubscriptionStore(); add(store, 'a', ['farmacias: dipirona 500mg']);
+    store.setRef('farmacias: dipirona 500mg', 10);
+    const sent: Array<{ title: string; body: string }> = [];
+    await runDailyCheck({ store, find: prices({ 'farmacias: dipirona 500mg': { priceBRL: 8, source: 'São João' } }), send: async (_s, p) => { sent.push(p); return 'ok'; } });
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.title).toBe('Baixou 20%: dipirona 500mg');
+    expect(sent[0]!.title).not.toContain('farmacias');
+  });
 });

@@ -32,4 +32,23 @@ describe('createFindPrices', () => {
     const r = await createFindPrices([quebrada, store('B', { 'sal 1kg': 4 })])(['sal 1kg']);
     expect(r.get('sal 1kg')).toEqual({ priceBRL: 4, source: 'B' });
   });
+
+  describe('farmácias (consulta com o prefixo "farmacias: ")', () => {
+    it('busca nas farmácias, devolve com a mesma chave e não mistura com os mercados', async () => {
+      const find = createFindPrices([store('Mercado', { 'dipirona 500mg': 1 })], { pharmacySources: [store('Farm', { 'dipirona 500mg': 6 })] });
+      const r = await find(['farmacias: dipirona 500mg', 'dipirona 500mg']);
+      expect(r.get('farmacias: dipirona 500mg')).toEqual({ priceBRL: 6, source: 'Farm' });
+      expect(r.get('dipirona 500mg')).toEqual({ priceBRL: 1, source: 'Mercado' });
+    });
+    it('sem farmácias configuradas, a consulta de farmácia fica sem preço (null)', async () => {
+      const r = await createFindPrices([store('Mercado', {})])(['farmacias: dipirona 500mg']);
+      expect(r.get('farmacias: dipirona 500mg')).toBeNull();
+    });
+    it('entrega os produtos com a categoria, para o histórico gravar no lugar certo', async () => {
+      const seen: Array<[string, string]> = [];
+      const find = createFindPrices([store('M', { sal: 2 })], { pharmacySources: [store('F', { dipirona: 6 })], onProducts: (p, cat) => p.forEach((x) => seen.push([cat, x.query])) });
+      await find(['farmacias: dipirona', 'sal']);
+      expect(seen.sort()).toEqual([['farmacias', 'dipirona'], ['mercados', 'sal']]);
+    });
+  });
 });

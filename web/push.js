@@ -44,3 +44,6 @@ export function parsePushState(raw) {
     return { on: false };
   }
 }
+
+/** Chaves enviadas ao servidor no aviso por lista: em farmácias levam o prefixo, para a rotina diária buscar nas farmácias. */
+export const watchKeys = (products, category) => queriesToWatch(products).map((q) => (category === 'farmacias' ? `farmacias: ${q}` : q));
