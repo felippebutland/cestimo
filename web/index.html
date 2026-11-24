@@ -79,6 +79,9 @@
     .muted-note { color: var(--muted); font-size: 13px; margin: 12px 0 0; }
     .picker { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
     .picker label { font-weight: 600; }
+    .filter { display: flex; align-items: center; gap: 10px; padding: 10px 18px; border-bottom: 1px solid var(--line); }
+    .filter label { font-weight: 600; font-size: 13.5px; }
+    .picker .select, .filter .select { min-width: 0; }
     .select { appearance: none; -webkit-appearance: none; max-width: 100%; padding: 7px 34px 7px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none' stroke='%23888' stroke-width='1.6'%3E%3Cpath d='M1 1l4 4 4-4'/%3E%3C/svg%3E") no-repeat right 12px center; color: var(--text); font: inherit; font-size: 13.5px; cursor: pointer; }
     .select:hover { border-color: var(--muted); }
     .store-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
@@ -187,6 +190,10 @@
       .actions .hint { display: none; }
       .examples button { padding: 8px 4px; }
       .panel-h > div { width: 100%; }
+      /* seletores de mercado: rótulo em cima e campo na largura toda (o texto longo do campo não pode alargar a página) */
+      .picker, .filter { flex-direction: column; align-items: stretch; gap: 6px; }
+      .filter { padding: 10px 14px; }
+      .picker .select, .filter .select { width: 100%; }
       .panel-h .btn { flex: 1 1 0; }
       header.top { flex-direction: column; gap: 2px; }
       th.prod { width: 112px; }

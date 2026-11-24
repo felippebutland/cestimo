@@ -2,6 +2,7 @@ import { formatBRL, formatPct } from './format.js';
 import { JobExpiredError, submitJob, waitForJob } from './jobs.js';
 import { installMode, isStandalone, pwaOpenOncePerSession } from './install.js';
 import { rankSources, rankTotals } from './mobileOrder.js';
+import { normalizeMarket, visibleMarkets } from './marketFilter.js';
 import { parsePushState, pushMode, queriesToWatch, urlBase64ToUint8Array } from './push.js';
 import { sparklinePath, summarize } from './trend.js';
 import { formatDay, parseSaved, snapshot, variations } from './history.js';
@@ -100,6 +101,20 @@ function cell(s, isBest, onSwap) {
   return td;
 }
 
+/** Seletor "Mercado" da comparação: todos ou só um. Não aparece com um mercado só. */
+function marketFilter(names, market) {
+  if (names.length < 2) return null;
+  const select = el('select', { id: 'market-filter', className: 'select', ariaLabel: 'Mostrar só um mercado' },
+    el('option', { value: '', textContent: 'Todos os mercados' }), ...names.map((n) => el('option', { value: n, textContent: n })));
+  select.value = normalizeMarket(names, market) ?? '';
+  select.addEventListener('change', () => {
+    compareState.market = select.value === '' ? null : select.value;
+    if (compareState.market) track('filter_market');
+    if (currentData) render(currentData, { fresh: false });
+  });
+  return el('div', { className: 'filter no-print' }, el('label', { htmlFor: 'market-filter', textContent: 'Mercado' }), select);
+}
+
 function trendLine(v, since) {
   if (!v) return null;
   const text = v.direction === 'same' ? `Sem mudança desde ${since}`
@@ -130,19 +145,21 @@ function historyLine(points) {
     svg, el('span', { textContent: `${formatBRL(sum.minBRL)} a ${formatBRL(sum.maxBRL)} em ${sum.days} dias` }), el('b', { textContent: verdict }));
 }
 
-function comparisonPanel(data, onSwap, baseline, actions, series) {
+function comparisonPanel(data, onSwap, baseline, actions, series, market = null) {
   const trends = variations(baseline ?? null, data);
   const since = baseline ? formatDay(baseline.at) : '';
-  const names = data.products[0]?.sources.map((s) => s.source) ?? [];
+  const allNames = data.products[0]?.sources.map((s) => s.source) ?? [];
+  const names = visibleMarkets(allNames, market);
   const head = el('tr', {}, el('th', { className: 'prod', textContent: 'Produto' }), ...names.map((n) => el('th', { textContent: n })),
     el('th', { textContent: 'Média' }), el('th', { textContent: 'Diferença' }));
   const rows = data.products.map((p, pi) => {
     const best = p.stats?.cheapest.source;
-    const rank = rankSources(p.sources);
+    const shown = p.sources.filter((s) => names.includes(s.source));
+    const rank = rankSources(shown);
     // data-label e --o só valem no celular, onde cada produto vira um cartão com um mercado por linha (ver o CSS).
     const labeled = (td, label, order) => { td.dataset.label = label; td.style.setProperty('--o', String(order)); return td; };
     return el('tr', {}, el('td', { className: 'prod' }, p.query, trendLine(trends[pi], since), historyLine(series?.[pi])),
-      ...p.sources.map((s, si) => labeled(cell(s, s.source === best, () => onSwap(pi, s.source)), s.source, rank[si])),
+      ...shown.map((s, si) => labeled(cell(s, s.source === best, () => onSwap(pi, s.source)), s.source, rank[si])),
       labeled(el('td', { className: 'cell summary' }, el('span', { className: 'px', textContent: p.stats ? formatBRL(p.stats.averageBRL) : '—' })), 'Média', 90),
       labeled(el('td', { className: 'cell summary' }, el('span', { className: 'px', textContent: p.stats ? `${formatBRL(p.stats.diffBRL)}${' '}(${formatPct(p.stats.diffPct)})` : '—' })), 'Diferença', 91));
   });
@@ -158,10 +175,12 @@ function comparisonPanel(data, onSwap, baseline, actions, series) {
       return td;
     }), el('td'), el('td'));
   const mixed = new Set(Object.values(coverage)).size > 1;
+  const filtered = names.length !== allNames.length;
   return el('section', { className: 'panel detail' },
     el('div', { className: 'panel-h' }, el('h2', { textContent: 'Comparação por produto' }), actions),
+    marketFilter(allNames, market),
     el('div', { className: 'scroll' }, el('table', {}, el('thead', {}, head), el('tbody', {}, ...rows), el('tfoot', {}, foot))),
-    el('p', { className: 'legend', textContent: `Verde: menor preço do produto, já ajustado ao tamanho pedido. "Incerto": confira o item; ele fica fora da média e da cesta.${mixed ? ' Mercados com menos itens têm total menor por cobrir menos produtos.' : ''}` }));
+    el('p', { className: 'legend', textContent: `Verde: menor preço do produto, já ajustado ao tamanho pedido. "Incerto": confira o item; ele fica fora da média e da cesta.${mixed ? ' Mercados com menos itens têm total menor por cobrir menos produtos.' : ''}${filtered ? ' Média e diferença consideram todos os mercados.' : ''}` }));
 }
 
 /* ---------- Lista de compras ---------- */
@@ -274,6 +293,8 @@ function shoppingPanel(data) {
 
 /** Estado da lista de compras que sobrevive a um novo desenho (trocar um item não deve voltar a aba/mercado). */
 const shopState = { mode: 'item', chosen: null };
+/** Filtro por mercado da tabela de comparação (null = todos). */
+const compareState = { market: null };
 let currentData = null;
 
 let baseline = null;
@@ -284,6 +305,7 @@ function render(data, { fresh = true, list, shared = null } = {}) {
   if (fresh) {
     Object.assign(shopState, { mode: 'item', chosen: null });
     sharedView = shared;
+    compareState.market = normalizeMarket(data.products[0]?.sources.map((s) => s.source) ?? [], compareState.market);
     historySeries = null;
     baseline = shared ? null : readSaved()?.snapshot ?? null;
     if (list !== undefined) writeSaved({ list, snapshot: snapshot(data) });
@@ -292,7 +314,7 @@ function render(data, { fresh = true, list, shared = null } = {}) {
   currentData = data;
   $('result').replaceChildren(...[
     sharedView ? sharedBanner(data) : null,
-    comparisonPanel(data, openSwap, baseline, sharedView ? null : actionControls(), historySeries),
+    comparisonPanel(data, openSwap, baseline, sharedView ? null : actionControls(), historySeries, compareState.market),
     shoppingPanel(data),
   ].filter(Boolean));
 }

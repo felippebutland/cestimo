@@ -552,7 +552,7 @@ describe('POST /api/recompute (depois que a pessoa troca um item)', () => {
     expect((await post(app, payload)).statusCode).toBe(429);
   });
 
-  it.each(['pwa_open', 'pwa_install', 'install_click', 'push_on', 'push_off'])('o evento anônimo "%s" do app instalado é aceito e contado', async (name) => {
+  it.each(['pwa_open', 'pwa_install', 'install_click', 'push_on', 'push_off', 'filter_market'])('o evento anônimo "%s" do app instalado é aceito e contado', async (name) => {
     const app = buildApp({ sources: [fake], metricsToken: 'x' });
     expect((await app.inject({ method: 'POST', url: '/api/event', payload: { name } })).statusCode).toBe(204);
     const stats = (await app.inject({ method: 'GET', url: '/admin/stats', headers: { authorization: `Basic ${Buffer.from('admin:x').toString('base64')}` } })).json();
