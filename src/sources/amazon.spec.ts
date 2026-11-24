@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseAmazonItems, isAmazonBlocked } from './amazon.js';
+import { parseAmazonItems, isAmazonBlocked, isAmazonNoResults } from './amazon.js';
 import { blockedSource } from './blocked.js';
 import { BlockedError } from '../domain/types.js';
 
@@ -26,5 +26,16 @@ describe('isAmazonBlocked', () => {
 describe('blockedSource', () => {
   it('sempre rejeita com BlockedError', async () => {
     await expect(blockedSource('Mercado Livre', '403').search('x')).rejects.toBeInstanceOf(BlockedError);
+  });
+});
+
+describe('isAmazonNoResults', () => {
+  it('reconhece a página "Nenhum resultado" da Amazon (busca sem produto não é erro)', () => {
+    expect(isAmazonNoResults('Pesquisar Carrinho Nenhum resultado para sambiquira peru. Tente verificar a ortografia')).toBe(true);
+    expect(isAmazonNoResults('Nenhum resultado encontrado')).toBe(true);
+  });
+  it('página com produtos ou outro texto não é "sem resultado"', () => {
+    expect(isAmazonNoResults('1-16 de mais de 1.000 resultados para "leite"')).toBe(false);
+    expect(isAmazonNoResults('')).toBe(false);
   });
 });

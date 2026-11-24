@@ -16,6 +16,9 @@ export function parseAmazonItems(items: AmazonItem[], source: string): Offer[] {
   });
 }
 
+/** A Amazon abriu a página de busca e disse que não há produto: é "sem resultado", não falha. */
+export const isAmazonNoResults = (text: string): boolean => /nenhum resultado/i.test(text);
+
 export const isAmazonBlocked = (text: string): boolean => /captcha|digite os caracteres/i.test(text);
 
 export const amazonSource: PriceSource = {
@@ -24,10 +27,11 @@ export const amazonSource: PriceSource = {
     withPage(async (page) => {
       await page.goto(`${ORIGIN}/s?k=${encodeURIComponent(query)}`, { waitUntil: 'domcontentloaded' });
       const rendered = await page
-        .waitForSelector('[data-component-type="s-search-result"], form[action*="validateCaptcha"]', { timeout: 15_000 })
+        .waitForSelector('[data-component-type="s-search-result"], form[action*="validateCaptcha"], :text("Nenhum resultado")', { timeout: 15_000 })
         .then(() => true, () => false);
       if (isAmazonBlocked(await page.evaluate(() => document.body.innerText))) throw new BlockedError('Amazon pediu CAPTCHA');
       if (!rendered) throw new Error('a página não renderizou os resultados');
+      if (isAmazonNoResults(await page.evaluate(() => document.body.innerText))) return [];
       const items = await page.evaluate(() =>
         [...document.querySelectorAll('[data-component-type="s-search-result"]')].map((e) => ({
           title: e.querySelector('h2')?.textContent?.trim(),
