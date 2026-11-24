@@ -1,5 +1,6 @@
 import { accountView, loginFailed } from './account.js';
-import { changeBadge, defaultListName, listLabel, sparkPoints } from './panel.js';
+import { ageLabel, changeBadge, changeLabel, changesSince, defaultListName, isStale, itemKey, listLabel, progress, sparkPoints, toggleChecked } from './panel.js';
+import { buildShoppingList, buildSingleStoreList } from './shoppingList.js';
 import { sparklinePath } from './trend.js';
 import { formatBRL } from './format.js';
 
@@ -53,13 +54,13 @@ export async function initMe(hooks) {
     },
     async saveCurrentList() {
       if (!state.user) { location.href = '/api/auth/google'; return; }
-      const { category, list } = hooks.getCurrent();
+      const { category, list, result } = hooks.getCurrent();
       if (!list.trim()) { toast('Escreva a lista antes de salvar.'); return; }
       const name = window.prompt('Nome da lista:', defaultListName(new Date()));
       if (name === null) return;
       try {
-        await api('POST', '/api/me/lists', { name, category, list });
-        toast('Lista salva em "Minhas listas".');
+        await api('POST', '/api/me/lists', { name, category, list, ...(result ? { result } : {}) });
+        toast(result ? 'Lista salva com os preços de agora.' : 'Lista salva em "Minhas listas".');
         if (!$('me-panel').hidden) await renderPanel();
       } catch (e) { toast(e.message); }
     },
@@ -134,22 +135,113 @@ export async function initMe(hooks) {
     }
   }
 
+  const keysOf = (l) => l.list.split('\n').filter(Boolean).map(itemKey);
+  const brlTotal = (l) => (l.result ? buildShoppingList(l.result).totalBRL : null);
+
   async function listsView() {
     const { lists } = await api('GET', '/api/me/lists');
-    if (lists.length === 0) return [el('p', { className: 'muted-note', textContent: 'Nenhuma lista salva ainda. Monte uma lista na tela principal e toque em "Salvar lista".' })];
-    return [el('ul', { className: 'rows' }, ...lists.map((l) => el('li', { className: 'row' },
-      el('div', { className: 'row-main' }, el('b', { textContent: l.name }), el('small', { textContent: listLabel(l) })),
-      el('div', { className: 'row-actions' },
-        el('button', { type: 'button', className: 'btn sm brand', textContent: 'Usar', onclick: () => { hooks.useList(l); closePanel(); } }),
-        el('button', { type: 'button', className: 'btn sm', textContent: 'Renomear', onclick: async () => {
-          const name = window.prompt('Novo nome:', l.name);
-          if (name === null) return;
-          try { await api('PATCH', `/api/me/lists/${l.id}`, { name }); await renderPanel(); } catch (e) { toast(e.message); }
-        } }),
-        el('button', { type: 'button', className: 'btn sm', textContent: 'Apagar', onclick: async () => {
-          if (!window.confirm(`Apagar a lista "${l.name}"?`)) return;
-          try { await api('DELETE', `/api/me/lists/${l.id}`); await renderPanel(); } catch (e) { toast(e.message); }
-        } })))))];
+    if (lists.length === 0) return [el('p', { className: 'muted-note', textContent: 'Nenhuma lista salva ainda. Compare uma lista na tela principal e toque em "Salvar lista": ela fica guardada com os preços e vira sua lista de compras.' })];
+    return [el('ul', { className: 'rows' }, ...lists.map((l) => {
+      const p = progress(keysOf(l), l.checked);
+      const total = brlTotal(l);
+      return el('li', { className: 'row' },
+        el('div', { className: 'row-main' },
+          el('b', { textContent: l.name }),
+          el('small', { textContent: listLabel(l) }),
+          l.result ? el('span', { className: 'now', textContent: `${formatBRL(total)} · ${ageLabel(l.result.at)}` }) : el('small', { textContent: 'Sem preços salvos' }),
+          l.result && p.done > 0 ? el('span', { className: 'badge down', textContent: `${p.label} comprados` }) : null),
+        el('div', { className: 'row-actions' },
+          l.result ? el('button', { type: 'button', className: 'btn sm brand', textContent: 'Abrir', onclick: () => openDetail(l) }) : null,
+          el('button', { type: 'button', className: l.result ? 'btn sm' : 'btn sm brand', textContent: 'Usar na busca', onclick: () => { hooks.useList(l); closePanel(); } }),
+          el('button', { type: 'button', className: 'btn sm', textContent: 'Renomear', onclick: async () => {
+            const name = window.prompt('Novo nome:', l.name);
+            if (name === null) return;
+            try { await api('PATCH', `/api/me/lists/${l.id}`, { name }); await renderPanel(); } catch (e) { toast(e.message); }
+          } }),
+          el('button', { type: 'button', className: 'btn sm', textContent: 'Apagar', onclick: async () => {
+            if (!window.confirm(`Apagar a lista "${l.name}"?`)) return;
+            try { await api('DELETE', `/api/me/lists/${l.id}`); await renderPanel(); } catch (e) { toast(e.message); }
+          } })));
+    }))];
+  }
+
+  /* ---- lista de compras: preços salvos, variação e itens marcados ---- */
+  function openDetail(list) {
+    let l = list;
+    let mode = 'item';
+    let store = null;
+    const body = panel.querySelector('.panel-b');
+    const tabs = panel.querySelector('.tabs');
+    tabs.hidden = true;
+
+    const saveChecked = async () => { try { await api('PUT', `/api/me/lists/${l.id}/checked`, { checked: l.checked }); } catch (e) { toast(e.message); } };
+
+    function draw() {
+      const data = l.result;
+      const changes = changesSince(data, l.prev);
+      const shopping = mode === 'store' ? buildSingleStoreList(data, store ?? undefined) : buildShoppingList(data);
+      const p = progress(keysOf(l), l.checked);
+      const stale = isStale(data.at, Date.now());
+
+      const refresh = el('button', { type: 'button', className: 'btn sm brand', textContent: 'Atualizar preços' });
+      refresh.addEventListener('click', async () => {
+        refresh.disabled = true;
+        refresh.textContent = 'Buscando preços…';
+        try {
+          const fresh = await hooks.refreshPrices(l.list, l.category);
+          const { list: updated } = await api('PUT', `/api/me/lists/${l.id}/prices`, { result: fresh });
+          l = updated;
+          toast('Preços atualizados.');
+        } catch (e) { toast(e.message); }
+        draw();
+      });
+
+      const modeTabs = el('div', { className: 'tabs' },
+        ...[['item', 'Mais barato por item'], ['store', 'Um mercado só']].map(([id, label]) =>
+          el('button', { type: 'button', className: `tab${mode === id ? ' on' : ''}`, textContent: label, onclick: () => { mode = id; draw(); } })));
+      const picker = mode === 'store' && shopping.options.length > 1
+        ? el('div', { className: 'picker' }, el('label', { textContent: 'Mercado', htmlFor: 'detail-store' }),
+          (() => {
+            const sel = el('select', { id: 'detail-store', className: 'select' }, ...shopping.options.map((o) => el('option', { value: o.source, textContent: `${o.source} · ${formatBRL(o.totalBRL)}${o.complete ? '' : ` · ${o.covered}/${o.findable} itens`}`, selected: o.source === shopping.stores[0]?.source })));
+            sel.addEventListener('change', () => { store = sel.value; draw(); });
+            return sel;
+          })())
+        : null;
+
+      const itemRow = (it) => {
+        const key = itemKey(it.query);
+        const done = l.checked.includes(key);
+        const chg = changes.items.get(key);
+        const box = el('input', { type: 'checkbox', checked: done, 'aria-label': `Comprado: ${it.query}` });
+        box.addEventListener('change', () => { l.checked = toggleChecked(l.checked, key); void saveChecked(); draw(); });
+        return el('label', { className: `shop-item${done ? ' done' : ''}` }, box,
+          el('span', { className: 'shop-main' }, el('b', { textContent: it.query }), el('small', { textContent: it.title })),
+          el('span', { className: 'shop-price' }, el('b', { textContent: formatBRL(it.priceBRL) }), chg && chg.kind !== 'same' ? el('small', { className: `chg ${chg.kind}`, textContent: changeLabel(chg) }) : null));
+      };
+
+      const totalChg = changes.total;
+      const summary = el('div', { className: 'shop-summary' },
+        el('div', {}, el('small', { textContent: mode === 'store' ? 'Total neste mercado' : 'Total da lista' }), el('div', { className: 'shop-total', textContent: formatBRL(shopping.totalBRL) }),
+          totalChg && totalChg.kind !== 'same' && mode === 'item' ? el('small', { className: `chg ${totalChg.kind}`, textContent: `${changeLabel(totalChg)} desde ${ageLabel(l.prev.at).replace('preços de ', '')}` }) : null),
+        el('div', { className: 'shop-progress' }, el('small', { textContent: `${p.label} comprados` }),
+          (() => { const bar = el('div', { className: 'bar2' }); bar.append(el('i', { style: `width:${p.total ? (p.done / p.total) * 100 : 0}%` })); return bar; })()));
+
+      body.replaceChildren(...[
+        el('div', { className: 'shop-head' },
+          el('button', { type: 'button', className: 'btn sm', textContent: '← Minhas listas', onclick: () => { tabs.hidden = false; void renderPanel(); } }),
+          el('b', { textContent: l.name })),
+        el('div', { className: `shop-age${stale ? ' stale' : ''}` },
+          el('span', { textContent: `${ageLabel(data.at)}${stale ? ' · podem ter mudado, atualize antes de ir às compras' : ''}` }), refresh),
+        summary,
+        modeTabs, picker,
+        ...shopping.stores.map((st) => el('section', { className: 'shop-store' },
+          el('div', { className: 'shop-store-h' }, el('b', { textContent: st.source }), el('span', { textContent: formatBRL(st.subtotalBRL) })),
+          ...st.items.map(itemRow))),
+        shopping.missing.length ? el('p', { className: 'muted-note', textContent: `Sem preço confiável: ${shopping.missing.join(', ')}` }) : null,
+        l.checked.length ? el('button', { type: 'button', className: 'btn sm', textContent: 'Desmarcar tudo', onclick: () => { l.checked = []; void saveChecked(); draw(); } }) : null,
+      ].filter(Boolean));
+    }
+    draw();
   }
 
   async function trackedView() {

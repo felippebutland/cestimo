@@ -5,7 +5,11 @@ export const MAX_LISTS = 10;
 export const MAX_TRACKED = 20;
 export type PanelCategory = 'mercados' | 'farmacias';
 
-export type SavedList = { id: number; name: string; category: PanelCategory; body: string; updatedAt: number };
+export type SavedList = {
+  id: number; name: string; category: PanelCategory; body: string; updatedAt: number;
+  /** Resultado da comparação no momento em que a lista foi salva/atualizada (JSON), a data dele, os preços da foto anterior (JSON) e os itens marcados (JSON). */
+  snapshot: string | null; snapshotAt: number | null; prev: string | null; checked: string;
+};
 export type TrackedItem = { id: number; query: string; category: PanelCategory; createdAt: number; startPrice: number | null; startSource: string | null };
 type Result = { ok: true } | { ok: false; reason: 'limit' };
 type TrackResult = { ok: true; added: boolean } | { ok: false; reason: 'limit' };
@@ -21,6 +25,10 @@ export function createPanelStore(db: DatabaseSync, now: () => number = Date.now)
     category TEXT NOT NULL, created_at INTEGER NOT NULL, UNIQUE (user_id, product_key, category)
   );`);
 
+  // listas criadas antes do resultado salvo ganham as colunas novas
+  for (const col of ['snapshot TEXT', 'snapshot_at INTEGER', 'prev TEXT', "checked TEXT NOT NULL DEFAULT '[]'"]) {
+    try { db.exec(`ALTER TABLE saved_lists ADD COLUMN ${col}`); } catch { /* já existe */ }
+  }
   // bancos criados antes do preço inicial ganham as colunas novas
   for (const col of ['start_price REAL', 'start_source TEXT']) {
     try { db.exec(`ALTER TABLE tracked_products ADD COLUMN ${col}`); } catch { /* já existe */ }
@@ -28,9 +36,15 @@ export function createPanelStore(db: DatabaseSync, now: () => number = Date.now)
 
   const countLists = db.prepare('SELECT COUNT(*) AS n FROM saved_lists WHERE user_id = ?');
   const existingList = db.prepare('SELECT id FROM saved_lists WHERE user_id = ? AND name_key = ? AND category = ?');
-  const insertList = db.prepare('INSERT INTO saved_lists (user_id, name, name_key, category, body, updated_at) VALUES (?, ?, ?, ?, ?, ?)');
+  const insertList = db.prepare('INSERT INTO saved_lists (user_id, name, name_key, category, body, updated_at, snapshot, snapshot_at, prev) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
   const updateList = db.prepare('UPDATE saved_lists SET name = ?, body = ?, updated_at = ? WHERE id = ?');
-  const selectLists = db.prepare('SELECT id, name, category, body, updated_at AS updatedAt FROM saved_lists WHERE user_id = ? ORDER BY updated_at DESC, id DESC');
+  const updateListWithSnapshot = db.prepare('UPDATE saved_lists SET name = ?, body = ?, updated_at = ?, snapshot = ?, snapshot_at = ?, prev = ? WHERE id = ?');
+  const COLUMNS = 'id, name, category, body, updated_at AS updatedAt, snapshot, snapshot_at AS snapshotAt, prev, checked';
+  const selectLists = db.prepare(`SELECT ${COLUMNS} FROM saved_lists WHERE user_id = ? ORDER BY updated_at DESC, id DESC`);
+  const selectList = db.prepare(`SELECT ${COLUMNS} FROM saved_lists WHERE user_id = ? AND id = ?`);
+  const selectByName = db.prepare(`SELECT ${COLUMNS} FROM saved_lists WHERE user_id = ? AND name_key = ? AND category = ?`);
+  const setSnapshotStmt = db.prepare('UPDATE saved_lists SET snapshot = ?, snapshot_at = ?, prev = ?, updated_at = ? WHERE id = ? AND user_id = ?');
+  const setCheckedStmt = db.prepare('UPDATE saved_lists SET checked = ? WHERE id = ? AND user_id = ?');
   const removeList = db.prepare('DELETE FROM saved_lists WHERE id = ? AND user_id = ?');
   const renameStmt = db.prepare('UPDATE saved_lists SET name = ?, name_key = ?, updated_at = ? WHERE id = ? AND user_id = ?');
 
@@ -46,17 +60,23 @@ export function createPanelStore(db: DatabaseSync, now: () => number = Date.now)
 
   return {
     lists: (userId: number): SavedList[] => selectLists.all(userId) as SavedList[],
-    saveList(userId: number, l: { name: string; category: PanelCategory; body: string }): Result {
+    list: (userId: number, id: number): SavedList | null => (selectList.get(userId, id) as SavedList | undefined) ?? null,
+    listByName: (userId: number, name: string, category: PanelCategory): SavedList | null => (selectByName.get(userId, nameKey(name), category) as SavedList | undefined) ?? null,
+    /** Cria a lista ou, com o mesmo nome e categoria, substitui. Com `snapshot`, troca também o resultado (e os preços da foto anterior em `prev`). */
+    saveList(userId: number, l: { name: string; category: PanelCategory; body: string; snapshot?: string; prev?: string | null }): Result {
       const key = nameKey(l.name);
       const found = existingList.get(userId, key, l.category) as { id: number } | undefined;
       if (found) {
-        updateList.run(l.name, l.body, now(), found.id);
+        if (l.snapshot !== undefined) updateListWithSnapshot.run(l.name, l.body, now(), l.snapshot, now(), l.prev ?? null, found.id);
+        else updateList.run(l.name, l.body, now(), found.id);
         return { ok: true };
       }
       if ((countLists.get(userId) as { n: number }).n >= MAX_LISTS) return { ok: false, reason: 'limit' };
-      insertList.run(userId, l.name, key, l.category, l.body, now());
+      insertList.run(userId, l.name, key, l.category, l.body, now(), l.snapshot ?? null, l.snapshot !== undefined ? now() : null, l.prev ?? null);
       return { ok: true };
     },
+    setSnapshot: (userId: number, id: number, snapshot: string, prev: string | null): boolean => Number(setSnapshotStmt.run(snapshot, now(), prev, now(), id, userId).changes) > 0,
+    setChecked: (userId: number, id: number, keys: string[]): boolean => Number(setCheckedStmt.run(JSON.stringify(keys), id, userId).changes) > 0,
     renameList(userId: number, id: number, name: string): boolean {
       try {
         return Number(renameStmt.run(name, nameKey(name), now(), id, userId).changes) > 0;

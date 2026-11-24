@@ -822,7 +822,18 @@ applyTheme(readTheme());
 let me = null;
 async function startMe() {
   me = await initMe({
-    getCurrent: () => ({ category, list: $('list').value }),
+    getCurrent: () => {
+      const list = $('list').value;
+      // o resultado só vai junto se for da lista que está no campo (mesmos itens)
+      const lines = new Set(list.split('\n').map((l) => l.trim().toLowerCase()).filter(Boolean));
+      const same = currentData && currentData.products.length === lines.size && currentData.products.every((p) => lines.has(p.query.trim().toLowerCase()));
+      return { category, list, result: same ? toShareBody(currentData, category) : null };
+    },
+    /** "Atualizar preços" de uma lista salva: refaz a comparação e devolve o resultado no formato salvo. */
+    refreshPrices: async (list, cat) => {
+      const { id } = await submitJob(list, { category: cat });
+      return toShareBody(await waitForJob(id), cat);
+    },
     useList: ({ category: c, list }) => {
       if (c !== category) setCategory(c, { restore: false });
       $('list').value = list;

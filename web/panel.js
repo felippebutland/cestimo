@@ -21,3 +21,58 @@ export function listLabel(l) {
 export const defaultListName = (date) => `Lista de ${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}`;
 
 export const sparkPoints = (prices) => prices.map((p) => ({ cheapestBRL: p }));
+
+/* ---------- Lista de compras salva (preços, variação e itens marcados) ---------- */
+
+/** Mesma chave do servidor para identificar um item: sem acento, caixa e espaços repetidos. */
+export const itemKey = (query) => query.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 80);
+
+const money = (n) => `R$ ${n.toFixed(2).replace('.', ',')}`;
+const cheapestOf = (p) => p.stats?.cheapest?.priceBRL ?? null;
+const change = (from, to) => {
+  const diff = Math.round((to - from) * 100) / 100;
+  return { fromBRL: from, toBRL: to, diffBRL: diff, pct: from > 0 ? ((to - from) / from) * 100 : 0, kind: diff < 0 ? 'down' : diff > 0 ? 'up' : 'same' };
+};
+
+/**
+ * Variação do resultado atual da lista contra os preços da foto anterior (`prev.prices`, por item).
+ * Só entram os itens com preço nos dois momentos; o total soma só esses.
+ */
+export function changesSince(result, prev) {
+  const items = new Map();
+  if (!prev) return { items, total: null };
+  let from = 0;
+  let to = 0;
+  for (const p of result.products) {
+    const key = itemKey(p.query);
+    const now = cheapestOf(p);
+    const before = prev.prices[key];
+    if (now === null || typeof before !== 'number') continue;
+    items.set(key, change(before, now));
+    from += before;
+    to += now;
+  }
+  return { items, total: items.size > 0 ? change(Math.round(from * 100) / 100, Math.round(to * 100) / 100) : null };
+}
+
+export function changeLabel(c) {
+  if (c.kind === 'same') return 'igual';
+  return `${c.kind === 'down' ? '↓' : '↑'} ${money(Math.abs(c.diffBRL))} (${pct(Math.abs(c.pct))})`;
+}
+
+/** Quantos itens da lista já foram marcados (marcado que não é mais da lista não conta). */
+export function progress(keys, checked) {
+  const done = keys.filter((k) => checked.includes(k)).length;
+  return { done, total: keys.length, label: `${done} de ${keys.length}` };
+}
+
+export const toggleChecked = (checked, key) => (checked.includes(key) ? checked.filter((k) => k !== key) : [...checked, key]);
+
+const two = (n) => String(n).padStart(2, '0');
+export function ageLabel(at) {
+  const d = new Date(at);
+  return `preços de ${two(d.getDate())}/${two(d.getMonth() + 1)} às ${two(d.getHours())}:${two(d.getMinutes())}`;
+}
+
+const STALE_AFTER_MS = 3 * 24 * 60 * 60 * 1000;
+export const isStale = (at, now) => now - at > STALE_AFTER_MS;
