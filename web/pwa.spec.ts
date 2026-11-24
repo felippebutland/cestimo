@@ -112,6 +112,6 @@ describe('avisos de queda de preço no service worker', () => {
   });
   it('a casca do app guardada para uso sem internet inclui os módulos novos', () => {
     const src = read('sw.js');
-    for (const f of ['/install.js', '/trend.js', '/push.js', '/mobileOrder.js', '/marketFilter.js', '/category.js']) expect(src).toContain(`'${f}'`);
+    for (const f of ['/install.js', '/trend.js', '/push.js', '/mobileOrder.js', '/marketFilter.js', '/category.js', '/cmed.js']) expect(src).toContain(`'${f}'`);
   });
 });

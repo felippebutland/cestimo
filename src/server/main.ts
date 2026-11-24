@@ -11,6 +11,7 @@ import { createTopList } from './metrics.js';
 import { createStateFile, startAutosave } from './persistence.js';
 import { createHistoryStore, dayKey } from './history.js';
 import { runBackup } from './backup.js';
+import { loadCmedFile } from './cmed.js';
 import { runProbe } from './probe.js';
 import { withConcurrency } from '../sources/concurrency.js';
 import * as webpush from 'web-push';
@@ -95,9 +96,13 @@ const backupNow = (): void => {
   }
 };
 
+// Lista oficial de preços máximos (CMED): gerada por `npm run cmed:build`. Sem o arquivo, só não mostra o teto.
+const cmed = loadCmedFile(process.env.CMED_FILE ?? fileURLToPath(new URL('../../config/cmed-pmc.json.gz', import.meta.url)));
+
 const app = buildApp({
   sources,
   pharmacySources,
+  cmed,
   city: markets.city,
   name: process.env.APP_NAME || 'Cestimo',
   logger: true,

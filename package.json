@@ -8,6 +8,7 @@
     "dev": "tsx --env-file-if-exists=.env src/server/main.ts",
     "typecheck": "tsc --noEmit",
     "markets:check": "tsx scripts/check-markets.ts",
+    "cmed:build": "tsx scripts/build-cmed.ts",
     "start": "tsx --env-file-if-exists=.env src/server/main.ts"
   },
   "dependencies": {

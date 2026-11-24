@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { buildApp } from './app.js';
 import { createSubscriptionStore } from './push/subscriptions.js';
+import { createCmedIndex } from './cmed.js';
 import type { PriceSource } from '../domain/types.js';
 
 const fake: PriceSource = { name: 'fake', search: async () => [{ source: 'fake', title: 'Arroz Urbano 5kg', priceBRL: 21.79 }] };
@@ -804,6 +805,38 @@ describe('categorias: mercados e farmácias', () => {
     const body = { products: [{ query: 'a', sources: [{ source: 'Farma', status: 'ok', match: { title: 'Dipirona', priceBRL: 9, equivalentBRL: 9, sizeAdjusted: false, score: 1, uncertain: false } }] }], category: 'farmacias' };
     const { id } = (await app.inject({ method: 'POST', url: '/api/share', payload: body })).json();
     expect((await app.inject({ method: 'GET', url: `/api/share/${id}` })).json().result.category).toBe('farmacias');
+  });
+});
+
+describe('teto oficial (CMED) nas farmácias', () => {
+  const rx: PriceSource = { name: 'Farma', search: async () => [{ source: 'Farma', title: 'Losartana Potássica 50mg 30 Comprimidos', priceBRL: 12 }] };
+  const cmed = createCmedIndex([
+    { s: 'LOSARTANA POTÁSSICA', p: 'LOSARTANA POTÁSSICA', a: '50 MG COM REV CT BL AL PLAS TRANS X 30', t: 'Genérico', pmc: 16.4 },
+    { s: 'LOSARTANA POTÁSSICA', p: 'COZAAR', a: '50 MG COM REV CT BL AL PLAS TRANS X 30', t: 'Referência', pmc: 47.9 },
+  ], '2026-11-09');
+  const compareIn = (app: ReturnType<typeof buildApp>, body: unknown) => app.inject({ method: 'POST', url: '/api/compare', payload: body as object });
+
+  it('em farmácias, cada produto traz a faixa do teto oficial e a data da lista', async () => {
+    const app = buildApp({ sources: [fake], pharmacySources: [rx], cmed });
+    const p = (await compareIn(app, { list: 'Losartana 50mg 30 comprimidos', category: 'farmacias' })).json().products[0];
+    expect(p.cmed).toEqual({ minBRL: 16.4, maxBRL: 16.4, n: 1, generic: true, listDate: '2026-11-09' });
+  });
+  it('produto sem teto (OTC, higiene) não traz o campo', async () => {
+    const other: PriceSource = { name: 'Farma', search: async () => [{ source: 'Farma', title: 'Fralda Pampers M 40 Unidades', priceBRL: 45 }] };
+    const app = buildApp({ sources: [fake], pharmacySources: [other], cmed });
+    const p = (await compareIn(app, { list: 'Fralda Pampers M', category: 'farmacias' })).json().products[0];
+    expect(p).not.toHaveProperty('cmed');
+  });
+  it('em mercados nunca traz o teto, mesmo com o texto de um remédio', async () => {
+    const app = buildApp({ sources: [rx], pharmacySources: [rx], cmed });
+    const p = (await compareIn(app, { list: 'Losartana 50mg 30 comprimidos' })).json().products[0];
+    expect(p).not.toHaveProperty('cmed');
+  });
+  it('sem o arquivo da lista (cmed ausente), farmácias funcionam normalmente, sem o campo', async () => {
+    const app = buildApp({ sources: [fake], pharmacySources: [rx] });
+    const res = await compareIn(app, { list: 'Losartana 50mg 30 comprimidos', category: 'farmacias' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().products[0]).not.toHaveProperty('cmed');
   });
 });
 

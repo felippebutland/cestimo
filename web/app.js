@@ -3,6 +3,7 @@ import { JobExpiredError, submitJob, waitForJob } from './jobs.js';
 import { installMode, isStandalone, pwaOpenOncePerSession } from './install.js';
 import { rankSources, rankTotals } from './mobileOrder.js';
 import { normalizeMarket, visibleMarkets } from './marketFilter.js';
+import { cmedText, cmedTitle } from './cmed.js';
 import { CATEGORY_TEXT, normalizeCategory, savedKey, sourcesFor } from './category.js';
 import { parsePushState, pushMode, queriesToWatch, urlBase64ToUint8Array } from './push.js';
 import { sparklinePath, summarize } from './trend.js';
@@ -160,6 +161,12 @@ function marketFilter(names, market) {
   return el('div', { className: 'filter no-print' }, el('label', { htmlFor: 'market-filter', textContent: text().filterLabel }), select);
 }
 
+/** Teto oficial (CMED) do remédio, quando a lista tem o preço máximo dele. */
+function cmedLine(c) {
+  const text = cmedText(c, formatBRL);
+  return text ? el('div', { className: 'sub cmed', textContent: text, title: cmedTitle(c) }) : null;
+}
+
 function trendLine(v, since) {
   if (!v) return null;
   const text = v.direction === 'same' ? `Sem mudança desde ${since}`
@@ -203,7 +210,7 @@ function comparisonPanel(data, onSwap, baseline, actions, series, market = null)
     const rank = rankSources(shown);
     // data-label e --o só valem no celular, onde cada produto vira um cartão com um mercado por linha (ver o CSS).
     const labeled = (td, label, order) => { td.dataset.label = label; td.style.setProperty('--o', String(order)); return td; };
-    return el('tr', {}, el('td', { className: 'prod' }, p.query, trendLine(trends[pi], since), historyLine(series?.[pi])),
+    return el('tr', {}, el('td', { className: 'prod' }, p.query, trendLine(trends[pi], since), historyLine(series?.[pi]), cmedLine(p.cmed)),
       ...shown.map((s, si) => labeled(cell(s, s.source === best, () => onSwap(pi, s.source)), s.source, rank[si])),
       labeled(el('td', { className: 'cell summary' }, el('span', { className: 'px', textContent: p.stats ? formatBRL(p.stats.averageBRL) : '—' })), 'Média', 90),
       labeled(el('td', { className: 'cell summary' }, el('span', { className: 'px', textContent: p.stats ? `${formatBRL(p.stats.diffBRL)}${' '}(${formatPct(p.stats.diffPct)})` : '—' })), 'Diferença', 91));

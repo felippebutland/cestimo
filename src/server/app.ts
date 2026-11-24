@@ -1,3 +1,4 @@
+import { findCeiling, type CmedIndex } from './cmed.js';
 import { isPushEndpoint, parseSubscribeBody, type SubscriptionStore } from './push/subscriptions.js';
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -37,6 +38,8 @@ export type AppDeps = {
   sources: PriceSource[];
   /** Lojas da categoria "farmácias". Sem elas, só existe a categoria "mercados". */
   pharmacySources?: PriceSource[];
+  /** Lista oficial de preços máximos (CMED). Sem ela, as farmácias não mostram o teto. */
+  cmed?: CmedIndex | null;
   city?: string;
   /** Nome do produto exibido na interface. */
   name?: string;
@@ -257,7 +260,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   });
 
   type Payload = {
-    products: Awaited<ReturnType<typeof compare>>['products'];
+    products: Array<Awaited<ReturnType<typeof compare>>['products'][number] & { cmed?: { minBRL: number; maxBRL: number; n: number; listDate: string | null } }>;
     basket: Omit<Awaited<ReturnType<typeof compare>>['basket'], 'totals' | 'coverage'> & {
       totals: Record<string, number>;
       coverage: Record<string, number>;
@@ -337,7 +340,12 @@ export function buildApp(deps: AppDeps): FastifyInstance {
         app.log.info({ event: 'compare', items: list.length, seconds, queries: list.map(normalizeQuery) });
       }
       const { totals, coverage } = result.basket;
-      return { products: result.products, basket: { ...result.basket, totals: Object.fromEntries(totals), coverage: Object.fromEntries(coverage) } };
+      // Teto oficial (CMED): só em farmácias e só para o que a lista cobre (remédios com preço máximo)
+      const withCeiling = result.products.map((p) => {
+        const ceiling = category === 'farmacias' && deps.cmed ? findCeiling(deps.cmed, p.query) : null;
+        return ceiling ? { ...p, cmed: { ...ceiling, listDate: deps.cmed!.listDate } } : p;
+      });
+      return { products: withCeiling, basket: { ...result.basket, totals: Object.fromEntries(totals), coverage: Object.fromEntries(coverage) } };
     } catch (e) {
       outcome('error');
       throw e;
