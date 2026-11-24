@@ -110,3 +110,39 @@ groups:
               expression: B
               conditions:
                 - evaluator: { type: lt, params: [1] }
+
+      # Teste automático: o app busca "leite integral 1L" em cada mercado de hora em hora, mesmo sem ninguém usando.
+      # Alerta quando 90% ou mais dos testes das últimas 3 h falharam (mínimo de 2 testes): o mercado mudou o site ou bloqueou.
+      - uid: cestimo-mercado-teste-automatico
+        title: Mercado falhou no teste automático
+        condition: C
+        for: 5m
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.source }}: {{ humanizePercentage $values.B.Value }} dos testes automáticos das últimas 3 h falharam"
+          description: "Rode `npm run markets:check` para ver o que a loja devolve. O site pode ter mudado ou bloqueado o leitor."
+        data:
+          - refId: A
+            relativeTimeRange: { from: 10800, to: 0 }
+            datasourceUid: prom
+            model:
+              refId: A
+              instant: true
+              expr: >-
+                (sum by (source) (increase(source_probe_total{result="falha"}[3h]))
+                / sum by (source) (increase(source_probe_total[3h])))
+                and on (source) (sum by (source) (increase(source_probe_total[3h])) >= 2)
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [0.9] }

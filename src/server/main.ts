@@ -10,6 +10,8 @@ import { buildSources, readMarketsFile } from './markets.js';
 import { createTopList } from './metrics.js';
 import { createStateFile, startAutosave } from './persistence.js';
 import { createHistoryStore } from './history.js';
+import { runBackup } from './backup.js';
+import { runProbe } from './probe.js';
 import { createShareStore } from './shares.js';
 
 const num = (name: string, fallback: number): number => {
@@ -57,12 +59,24 @@ const history = createHistoryStore({ path: join(process.env.DATA_DIR ?? './data'
 history.purge();
 setInterval(() => { try { history.purge(); } catch { /* limpeza é só higiene */ } }, 24 * 60 * 60 * 1000).unref();
 
-const sources = buildSources(markets).map((s) =>
+const rawSources = buildSources(markets);
+const sources = rawSources.map((s) =>
   withCache(s, TEN_MINUTES, Date.now, {
     onHit: (source) => metrics.inc('cache_events_total', { source, event: 'hit' }),
     onMiss: (source) => metrics.inc('cache_events_total', { source, event: 'miss' }),
   }),
 );
+
+// Backup diário (histórico, estatísticas e links) em DATA_DIR/backups; o scripts/backup.sh leva uma cópia para fora do volume.
+const dataDir = process.env.DATA_DIR ?? './data';
+const backupNow = (): void => {
+  try {
+    const { dir } = runBackup({ dataDir, history, now: Date.now, utcOffsetMinutes, keep: num('BACKUP_KEEP_DAYS', 14) });
+    app.log.info({ event: 'backup', dir });
+  } catch (e) {
+    app.log.warn({ event: 'backup_error', message: e instanceof Error ? e.message : String(e) });
+  }
+};
 
 const app = buildApp({
   sources,
@@ -86,6 +100,23 @@ await app.register(fastifyStatic, { root: fileURLToPath(new URL('../../web/', im
 await app.listen({ port: num('PORT', 3000), host: process.env.HOST ?? '127.0.0.1' });
 if (!process.env.METRICS_TOKEN) app.log.warn('METRICS_TOKEN não definido: /admin, /metrics e /admin/stats estão desativados.');
 if (saved) app.log.info('Números anteriores restaurados do disco.');
+
+backupNow();
+setInterval(backupNow, 24 * 60 * 60 * 1000).unref();
+
+// Teste automático: uma busca fixa em cada mercado a cada hora (sem cache), para notar site que mudou mesmo sem ninguém usando.
+const probeEveryMin = num('PROBE_EVERY_MIN', 60);
+if (probeEveryMin > 0) {
+  const term = process.env.PROBE_TERM || 'leite integral 1L';
+  const probe = (): void => {
+    void runProbe(rawSources, term, (source, result) => {
+      metrics.inc('source_probe_total', { source, result });
+      app.log.info({ event: 'source_probe', source, result });
+    });
+  };
+  setTimeout(probe, 2 * 60 * 1000).unref();
+  setInterval(probe, probeEveryMin * 60 * 1000).unref();
+}
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.on(signal, () => {

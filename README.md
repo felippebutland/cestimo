@@ -313,6 +313,9 @@ Se o servidor está atrás de um roteador, em casa ou sem IP fixo, dá para usar
 | `SAVE_EVERY_SECONDS` | `30` | de quanto em quanto tempo gravar em disco |
 | `SHARE_TTL_DAYS` | `7` | por quantos dias um link de "Compartilhar" continua valendo |
 | `HISTORY_KEEP_DAYS` | `365` | por quantos dias o histórico de preços fica guardado (arquivo `history.db` em `DATA_DIR`) |
+| `BACKUP_KEEP_DAYS` | `14` | quantos backups diários ficam em `DATA_DIR/backups` (histórico, estatísticas e links) |
+| `PROBE_EVERY_MIN` | `60` | de quantos em quantos minutos o app faz uma busca de teste em cada mercado (`0` desliga) |
+| `PROBE_TERM` | `leite integral 1L` | o que o teste automático busca |
 | `TZ_OFFSET_MIN` | `-180` | fuso dos gráficos por dia, em minutos do UTC (-180 = Brasília) |
 | `GRAFANA_PASSWORD` | vazio | senha do Grafana (só no perfil `monitoring`) |
 
@@ -360,3 +363,9 @@ API:
 ## Licença
 
 Defina a licença do seu repositório (por exemplo, adicionando um arquivo `LICENSE`).
+
+
+## Backup e teste automático
+
+- **Backup:** o app grava todo dia, em `DATA_DIR/backups/AAAA-MM-DD/`, uma cópia consistente do histórico de preços (`history.db`), das estatísticas (`stats.json`) e dos links (`shares.json`). Essa pasta fica dentro do volume do Docker, então o `scripts/backup.sh` leva uma cópia para fora (padrão `~/Backups/cestimo`, ou `CESTIMO_BACKUP_DIR`; aponte para o iCloud Drive para sair do disco). Para agendar no macOS: `cp scripts/com.cestimo.backup.plist ~/Library/LaunchAgents/ && launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.cestimo.backup.plist` (roda às 4h15). Para restaurar, copie o `history.db` do dia para o volume (`/app/data/history.db`) com o app parado.
+- **Teste automático dos mercados:** a cada hora o app busca `PROBE_TERM` em cada mercado, sem cache e uma loja por vez, e conta o resultado em `source_probe_total{source,result}`. O alerta *Mercado falhou no teste automático* dispara quando 90% ou mais dos testes das últimas 3 h falharam.

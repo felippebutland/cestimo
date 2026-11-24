@@ -14,6 +14,7 @@ export function createAppMetrics(): Metrics {
   m.define('bot_visits_total', 'counter', 'Visitas de robôs (monitores, buscadores, scripts), fora das visitas humanas');
   m.define('ui_events_total', 'counter', 'Ações na interface, por evento (copy_item, copy_store, print_*, tab_*, pick_store, example)');
   m.define('list_items_total', 'counter', 'Itens buscados, por resultado (found = com preço confiável, missing = sem)');
+  m.define('source_probe_total', 'counter', 'Teste automático de cada mercado (busca fixa, de hora em hora), por resultado (ok, falha)');
   m.define('savings_brl_total', 'counter', 'Economia estimada em R$: preço médio menos o mais barato, somado por produto');
   return m;
 }

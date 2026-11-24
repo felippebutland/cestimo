@@ -66,6 +66,10 @@ export function createHistoryStore(opts: { path: string; now?: () => number; kee
     purge(): number {
       return Number(purgeQuery.run(dayKey(now() - keepDays * DAY_MS, offset)).changes);
     },
+    /** Cópia consistente do banco em um novo arquivo (seguro com o app em uso). O destino não pode existir. */
+    backupTo(path: string): void {
+      db.prepare('VACUUM INTO ?').run(path);
+    },
     close(): void {
       db.close();
     },
