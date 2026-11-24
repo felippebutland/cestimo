@@ -20,6 +20,7 @@ const EVENT_LABELS = {
   swap_match: 'Trocou o item escolhido',
   pwa_open: 'Abriu o app instalado (PWA)',
   pwa_install: 'Instalou o app',
+  switch_category: 'Trocou entre mercados e farmácias',
   filter_market: 'Filtrou a comparação por mercado',
   push_on: 'Ativou aviso de queda de preço',
   push_off: 'Desativou aviso de queda de preço',

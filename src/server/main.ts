@@ -6,7 +6,7 @@ import { buildApp } from './app.js';
 import { createAppMetrics } from './appMetrics.js';
 import { withCache } from './cache.js';
 import { createDailyStats } from './dailyStats.js';
-import { buildSources, readMarketsFile } from './markets.js';
+import { buildPharmacySources, buildSources, readMarketsFile } from './markets.js';
 import { createTopList } from './metrics.js';
 import { createStateFile, startAutosave } from './persistence.js';
 import { createHistoryStore, dayKey } from './history.js';
@@ -74,12 +74,15 @@ const vapid = loadOrCreateVapid(process.env.DATA_DIR ?? './data', () => webpush.
 const sendPush = createSender(vapid, (subscription, payload, options) => webpush.sendNotification(subscription, payload, options));
 
 const rawSources = buildSources(markets);
-const sources = rawSources.map((s) =>
+const rawPharmacies = buildPharmacySources(markets);
+/** Cada loja: no máximo N buscas simultâneas e resultados guardados por 10 min. */
+const wrap = (s: (typeof rawSources)[number]) =>
   withCache(withConcurrency(s, num('SOURCE_CONCURRENCY', 3)), TEN_MINUTES, Date.now, {
     onHit: (source) => metrics.inc('cache_events_total', { source, event: 'hit' }),
     onMiss: (source) => metrics.inc('cache_events_total', { source, event: 'miss' }),
-  }),
-);
+  });
+const sources = rawSources.map(wrap);
+const pharmacySources = rawPharmacies.map(wrap);
 
 // Backup diário (histórico, estatísticas e links) em DATA_DIR/backups; o scripts/backup.sh leva uma cópia para fora do volume.
 const dataDir = process.env.DATA_DIR ?? './data';
@@ -94,6 +97,7 @@ const backupNow = (): void => {
 
 const app = buildApp({
   sources,
+  pharmacySources,
   city: markets.city,
   name: process.env.APP_NAME || 'Cestimo',
   logger: true,
@@ -151,11 +155,14 @@ setInterval(() => void pushCheck(), 60 * 60 * 1000).unref();
 const probeEveryMin = num('PROBE_EVERY_MIN', 60);
 if (probeEveryMin > 0) {
   const term = process.env.PROBE_TERM || 'leite integral 1L';
+  const pharmacyTerm = process.env.PROBE_PHARMACY_TERM || 'dipirona 500mg';
+  const record = (source: string, result: 'ok' | 'falha'): void => {
+    metrics.inc('source_probe_total', { source, result });
+    app.log.info({ event: 'source_probe', source, result });
+  };
   const probe = (): void => {
-    void runProbe(rawSources, term, (source, result) => {
-      metrics.inc('source_probe_total', { source, result });
-      app.log.info({ event: 'source_probe', source, result });
-    });
+    // uma lista depois da outra: nunca duas buscas de teste ao mesmo tempo
+    void runProbe(rawSources, term, record).then(() => runProbe(rawPharmacies, pharmacyTerm, record));
   };
   setTimeout(probe, 2 * 60 * 1000).unref();
   setInterval(probe, probeEveryMin * 60 * 1000).unref();

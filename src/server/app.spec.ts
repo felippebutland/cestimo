@@ -35,7 +35,7 @@ describe('POST /api/compare', () => {
     const app = buildApp({ sources: [fake], city: 'Chapecó, SC', name: 'Cestimo' });
     const res = await app.inject({ method: 'GET', url: '/api/config' });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ name: 'Cestimo', city: 'Chapecó, SC', sources: ['fake'] });
+    expect(res.json()).toEqual({ name: 'Cestimo', city: 'Chapecó, SC', sources: ['fake'], categories: [{ id: 'mercados', label: 'Mercados', sources: ['fake'] }] });
   });
 });
 
@@ -552,7 +552,7 @@ describe('POST /api/recompute (depois que a pessoa troca um item)', () => {
     expect((await post(app, payload)).statusCode).toBe(429);
   });
 
-  it.each(['pwa_open', 'pwa_install', 'install_click', 'push_on', 'push_off', 'filter_market'])('o evento anônimo "%s" do app instalado é aceito e contado', async (name) => {
+  it.each(['pwa_open', 'pwa_install', 'install_click', 'push_on', 'push_off', 'filter_market', 'switch_category'])('o evento anônimo "%s" do app instalado é aceito e contado', async (name) => {
     const app = buildApp({ sources: [fake], metricsToken: 'x' });
     expect((await app.inject({ method: 'POST', url: '/api/event', payload: { name } })).statusCode).toBe(204);
     const stats = (await app.inject({ method: 'GET', url: '/admin/stats', headers: { authorization: `Basic ${Buffer.from('admin:x').toString('base64')}` } })).json();
@@ -737,3 +737,73 @@ describe('avisos de queda de preço (push)', () => {
     expect((await subscribe(app, { subscription: sub('a'), queries: ['arroz'] })).statusCode).toBe(204);
   });
 });
+
+describe('categorias: mercados e farmácias', () => {
+  const pharmacy: PriceSource = { name: 'Farma', search: async () => [{ source: 'Farma', title: 'Dipirona 500mg 10 Comprimidos', priceBRL: 9.9 }] };
+  const mk = (extra: Record<string, unknown> = {}) => buildApp({ sources: [fake], pharmacySources: [pharmacy], metricsToken: 'x', ...extra });
+  const compareIn = (app: ReturnType<typeof buildApp>, payload: unknown) => app.inject({ method: 'POST', url: '/api/compare', payload: payload as object });
+  const basic = { authorization: `Basic ${Buffer.from('admin:x').toString('base64')}` };
+
+  it('/api/config lista as categorias e as lojas de cada uma', async () => {
+    const cfg = (await mk().inject({ method: 'GET', url: '/api/config' })).json();
+    expect(cfg.categories).toEqual([
+      { id: 'mercados', label: 'Mercados', sources: ['fake'] },
+      { id: 'farmacias', label: 'Farmácias', sources: ['Farma'] },
+    ]);
+    expect(cfg.sources).toEqual(['fake']);
+  });
+  it('sem farmácias configuradas, só existe a categoria mercados', async () => {
+    const cfg = (await buildApp({ sources: [fake] }).inject({ method: 'GET', url: '/api/config' })).json();
+    expect(cfg.categories.map((c: { id: string }) => c.id)).toEqual(['mercados']);
+  });
+  it('sem informar categoria, consulta os mercados (compatível com o app antigo)', async () => {
+    const res = await compareIn(mk(), { list: 'Arroz 5kg' });
+    expect(res.json().products[0].sources.map((s: { source: string }) => s.source)).toEqual(['fake']);
+  });
+  it('category "farmacias" consulta só as farmácias', async () => {
+    const res = await compareIn(mk(), { list: 'Dipirona 500mg 10 comprimidos', category: 'farmacias' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().products[0].sources.map((s: { source: string }) => s.source)).toEqual(['Farma']);
+  });
+  it('categoria desconhecida ou farmácias sem configuração respondem 400', async () => {
+    expect((await compareIn(mk(), { list: 'Sal', category: 'padarias' })).statusCode).toBe(400);
+    expect((await compareIn(mk(), { list: 'Sal', category: 5 })).statusCode).toBe(400);
+    expect((await compareIn(buildApp({ sources: [fake] }), { list: 'Sal', category: 'farmacias' })).statusCode).toBe(400);
+  });
+  it('/api/jobs também respeita a categoria', async () => {
+    const app = mk();
+    const start = await app.inject({ method: 'POST', url: '/api/jobs', payload: { list: 'Dipirona 500mg', category: 'farmacias' } });
+    expect(start.statusCode).toBe(202);
+    const id = start.json().id;
+    let job = (await app.inject({ method: 'GET', url: `/api/jobs/${id}` })).json();
+    for (let i = 0; i < 50 && job.status === 'running'; i++) { await new Promise((r) => setTimeout(r, 10)); job = (await app.inject({ method: 'GET', url: `/api/jobs/${id}` })).json(); }
+    expect(job.result.products[0].sources[0].source).toBe('Farma');
+  });
+  it('o histórico de farmácias não se mistura com o de mercados, mesmo com o mesmo texto', async () => {
+    const cheap: PriceSource = { name: 'Farma', search: async () => [{ source: 'Farma', title: 'Arroz Urbano 5kg', priceBRL: 3 }] };
+    const app = mk({ pharmacySources: [cheap] });
+    await compareIn(app, { list: 'Arroz 5kg' });
+    await compareIn(app, { list: 'Arroz 5kg', category: 'farmacias' });
+    const h = (category?: string) => app.inject({ method: 'POST', url: '/api/history', payload: { queries: ['Arroz 5kg'], ...(category ? { category } : {}) } });
+    const mercados = (await h()).json().series[0].points[0];
+    const farmacias = (await h('farmacias')).json().series[0].points[0];
+    expect(mercados.cheapestSource).toBe('fake');
+    expect(farmacias.cheapestSource).toBe('Farma');
+  });
+  it('conta as comparações por categoria nas métricas (sem contar quem está fora das estatísticas)', async () => {
+    const app = mk();
+    await compareIn(app, { list: 'Sal' });
+    await compareIn(app, { list: 'Dipirona', category: 'farmacias' });
+    await app.inject({ method: 'POST', url: '/api/compare', payload: { list: 'Dipirona', category: 'farmacias' }, headers: { cookie: 'cestimo_ignorar=1' } });
+    const body = (await app.inject({ method: 'GET', url: '/metrics', headers: basic })).body;
+    expect(body).toMatch(/compare_category_total\{category="mercados"\} 1/);
+    expect(body).toMatch(/compare_category_total\{category="farmacias"\} 1/);
+  });
+  it('o link compartilhado guarda a categoria do resultado', async () => {
+    const app = mk();
+    const body = { products: [{ query: 'a', sources: [{ source: 'Farma', status: 'ok', match: { title: 'Dipirona', priceBRL: 9, equivalentBRL: 9, sizeAdjusted: false, score: 1, uncertain: false } }] }], category: 'farmacias' };
+    const { id } = (await app.inject({ method: 'POST', url: '/api/share', payload: body })).json();
+    expect((await app.inject({ method: 'GET', url: `/api/share/${id}` })).json().result.category).toBe('farmacias');
+  });
+});
+

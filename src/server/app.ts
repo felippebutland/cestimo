@@ -17,10 +17,17 @@ import { createShareStore, type ShareStore } from './shares.js';
 export const MAX_ITEMS = 20;
 
 /** Ações da interface que viram contagem (lista fechada: nada que o usuário digite entra aqui). */
-export const UI_EVENTS = ['copy_item', 'copy_store', 'print_item', 'print_store', 'tab_item', 'tab_store', 'pick_store', 'example', 'swap_match', 'pwa_open', 'pwa_install', 'install_click', 'push_on', 'push_off', 'filter_market'] as const;
+export const UI_EVENTS = ['copy_item', 'copy_store', 'print_item', 'print_store', 'tab_item', 'tab_store', 'pick_store', 'example', 'swap_match', 'pwa_open', 'pwa_install', 'install_click', 'push_on', 'push_off', 'filter_market', 'switch_category'] as const;
 const isUiEvent = (v: unknown): v is (typeof UI_EVENTS)[number] => typeof v === 'string' && (UI_EVENTS as readonly string[]).includes(v);
 
 const ADMIN_DIR = new URL('./admin/', import.meta.url);
+
+export type Category = 'mercados' | 'farmacias';
+const CATEGORY_LABELS: Record<Category, string> = { mercados: 'Mercados', farmacias: 'Farmácias' };
+/** Sem a informação, vale "mercados" (compatível com o app antigo); texto desconhecido ou de outro tipo = null (inválido). */
+const parseCategory = (raw: unknown): Category | null => (raw === undefined || raw === 'mercados' ? 'mercados' : raw === 'farmacias' ? 'farmacias' : null);
+/** O histórico de farmácias fica separado do de mercados (mesmo texto de produto, lojas diferentes). */
+const historyKey = (query: string, category: Category): string => (category === 'farmacias' ? `farmacias: ${query}` : query);
 
 export type AppDeps = {
   /** Avisos de queda de preço (Web Push). Sem isto, as rotas /api/push/* não existem. */
@@ -28,6 +35,8 @@ export type AppDeps = {
   /** Limite de inscrições/cancelamentos por IP (padrão: 30 por hora). */
   pushRateLimit?: { max: number; windowMs: number };
   sources: PriceSource[];
+  /** Lojas da categoria "farmácias". Sem elas, só existe a categoria "mercados". */
+  pharmacySources?: PriceSource[];
   city?: string;
   /** Nome do produto exibido na interface. */
   name?: string;
@@ -145,7 +154,14 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   };
 
   app.get('/healthz', () => ({ ok: true }));
-  app.get('/api/config', () => ({ name: deps.name ?? 'Cestimo', city: deps.city ?? '', sources: deps.sources.map((s) => s.name) }));
+  const sourcesOf = (category: Category): PriceSource[] => (category === 'farmacias' ? deps.pharmacySources ?? [] : deps.sources);
+  const categoryIds: Category[] = (deps.pharmacySources?.length ?? 0) > 0 ? ['mercados', 'farmacias'] : ['mercados'];
+  app.get('/api/config', () => ({
+    name: deps.name ?? 'Cestimo',
+    city: deps.city ?? '',
+    sources: deps.sources.map((s) => s.name),
+    categories: categoryIds.map((id) => ({ id, label: CATEGORY_LABELS[id], sources: sourcesOf(id).map((s) => s.name) })),
+  }));
 
   app.get('/metrics', { preHandler: guard }, (_req, reply) =>
     reply.header('content-type', 'text/plain; version=0.0.4; charset=utf-8').send(metrics.render()));
@@ -249,7 +265,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   };
 
   /** Limite por IP, validação da lista e vaga na fila. Devolve null depois de já ter respondido o erro. */
-  const admit = (req: FastifyRequest, reply: FastifyReply): { list: string[]; leave: () => void } | null => {
+  const admit = (req: FastifyRequest, reply: FastifyReply): { list: string[]; category: Category; leave: () => void } | null => {
     if (limiter) {
       const limit = limiter.check(req.ip);
       if (!limit.allowed) {
@@ -259,7 +275,14 @@ export function buildApp(deps: AppDeps): FastifyInstance {
         return null;
       }
     }
-    const raw = (req.body as { list?: unknown } | null)?.list;
+    const body = req.body as { list?: unknown; category?: unknown } | null;
+    const category = parseCategory(body?.category);
+    if (category === null || !categoryIds.includes(category)) {
+      outcome('bad_request');
+      void reply.code(400).send({ error: 'Categoria inválida.' });
+      return null;
+    }
+    const raw = body?.list;
     const list = typeof raw === 'string' ? parseList(raw) : [];
     if (list.length === 0 || list.length > MAX_ITEMS) {
       outcome('bad_request');
@@ -272,16 +295,16 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       void reply.header('retry-after', '30').code(503).send({ error: 'Estamos com muitas consultas no momento. Tente de novo em instantes.' });
       return null;
     }
-    return { list, leave };
+    return { list, category, leave };
   };
 
   /** Guarda o menor preço confiável do dia de cada produto. Falha de disco nunca derruba a comparação. */
-  const recordHistory = (products: Awaited<ReturnType<typeof compare>>['products']): void => {
+  const recordHistory = (products: Awaited<ReturnType<typeof compare>>['products'], category: Category): void => {
     const day = dayKey(Date.now(), deps.utcOffsetMinutes ?? -180);
     for (const p of products) {
       const rows = p.sources.flatMap((s) => (s.match && !s.match.uncertain ? [{ source: s.source, priceBRL: s.match.equivalentBRL }] : []));
       try {
-        history.record(day, p.query, rows);
+        history.record(day, historyKey(p.query, category), rows);
       } catch (e) {
         app.log.warn({ event: 'history_error', message: e instanceof Error ? e.message : String(e) });
       }
@@ -289,11 +312,11 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   };
 
   /** Faz a comparação e registra as métricas (quem tem o cookie de opt-out fica fora do uso). */
-  const runCompare = async (list: string[], ignore: boolean, onProgress?: (done: number) => void): Promise<Payload> => {
+  const runCompare = async (list: string[], ignore: boolean, category: Category, onProgress?: (done: number) => void): Promise<Payload> => {
     const started = Date.now();
     try {
       if (!ignore) list.forEach((q) => top.record(normalizeQuery(q)));
-      const result = await compare(list, deps.sources, { observer, onProgress: (done) => onProgress?.(done) });
+      const result = await compare(list, sourcesOf(category), { observer, onProgress: (done) => onProgress?.(done) });
       const seconds = (Date.now() - started) / 1000;
       if (ignore) {
         outcome('ignored');
@@ -305,7 +328,8 @@ export function buildApp(deps: AppDeps): FastifyInstance {
         metrics.inc('list_items_total', { result: 'found' }, found);
         metrics.inc('list_items_total', { result: 'missing' }, list.length - found);
         metrics.inc('savings_brl_total', {}, savings);
-        recordHistory(result.products);
+        recordHistory(result.products, category);
+        metrics.inc('compare_category_total', { category });
         daily.add('compare');
         daily.add('items', list.length);
         daily.add('savings', Math.round(savings * 100) / 100);
@@ -325,7 +349,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     const admitted = admit(req, reply);
     if (!admitted) return reply;
     try {
-      return await runCompare(admitted.list, isIgnored(req));
+      return await runCompare(admitted.list, isIgnored(req), admitted.category);
     } finally {
       admitted.leave();
     }
@@ -356,7 +380,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     const id = randomUUID();
     const job: Job = { status: 'running', done: 0, total: admitted.list.length };
     jobs.set(id, job);
-    runCompare(admitted.list, isIgnored(req), (done) => { job.done = done; })
+    runCompare(admitted.list, isIgnored(req), admitted.category, (done) => { job.done = done; })
       .then((result) => { job.status = 'done'; job.done = job.total; job.result = result; })
       .catch(() => { job.status = 'error'; job.error = 'Não foi possível consultar os mercados agora. Tente de novo.'; })
       .finally(() => { job.finishedAt = Date.now(); admitted.leave(); });
@@ -373,7 +397,9 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     const parsed = parseRecomputeBody(req.body, { display: true });
     if (!parsed.ok) return reply.code(400).send({ error: parsed.error });
     const { stats, basket } = recompute(parsed.products);
+    const category = parseCategory((req.body as { category?: unknown } | null)?.category) ?? 'mercados';
     const result = {
+      category,
       products: parsed.products.map((p, i) => ({ query: p.query, sources: p.sources, stats: stats[i] })),
       basket: { ...basket, totals: Object.fromEntries(basket.totals), coverage: Object.fromEntries(basket.coverage) },
     };
@@ -417,7 +443,9 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   // Série de preços dos últimos dias de cada produto da lista (para mostrar a tendência).
   app.post('/api/history', async (req, reply) => {
     if (!historyLimiter.check(req.ip).allowed) return reply.code(429).send({ error: 'Muitas consultas seguidas.' });
-    const body = req.body as { queries?: unknown; days?: unknown } | null;
+    const body = req.body as { queries?: unknown; days?: unknown; category?: unknown } | null;
+    const category = parseCategory(body?.category);
+    if (category === null) return reply.code(400).send({ error: 'Categoria inválida.' });
     const queries = body?.queries;
     const days = body?.days === undefined ? 30 : body.days;
     if (!Array.isArray(queries) || queries.length === 0 || queries.length > MAX_ITEMS || !queries.every((q) => typeof q === 'string' && q.trim().length > 0 && q.length <= 120)) {
@@ -425,7 +453,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     }
     if (typeof days !== 'number' || !Number.isInteger(days) || days < 1) return reply.code(400).send({ error: 'Número de dias inválido.' });
     const list = queries as string[];
-    return reply.header('cache-control', 'no-store').send({ series: list.map((query) => ({ query, points: history.series(query, Math.min(days, 90)) })) });
+    return reply.header('cache-control', 'no-store').send({ series: list.map((query) => ({ query, points: history.series(historyKey(query, category), Math.min(days, 90)) })) });
   });
 
   // Recalcula médias e cesta com os itens que a pessoa escolheu. Não consulta mercados nem guarda nada.

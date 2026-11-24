@@ -34,6 +34,12 @@ describe('submitJob', () => {
     expect(sent!.init.method).toBe('POST');
     expect(JSON.parse(sent!.init.body)).toEqual({ list: 'Ovos 30un' });
   });
+  it('envia a categoria quando informada (farmácias)', async () => {
+    let body = '';
+    const fetchFn = (async (_url: string, init: { body: string }) => { body = init.body; return res(202, { id: 'abc', total: 1 }); }) as never;
+    await submitJob('Dipirona 500mg', { fetchFn, category: 'farmacias' });
+    expect(JSON.parse(body)).toEqual({ list: 'Dipirona 500mg', category: 'farmacias' });
+  });
   it.each([
     [400, { error: 'Informe ao menos um produto.' }, /Informe ao menos/],
     [429, { error: 'Muitas consultas seguidas. Tente de novo em 30s.' }, /Muitas consultas/],

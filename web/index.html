@@ -79,6 +79,10 @@
     .muted-note { color: var(--muted); font-size: 13px; margin: 12px 0 0; }
     .picker { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
     .picker label { font-weight: 600; }
+    .category { display: inline-flex; gap: 4px; padding: 3px; margin-bottom: 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
+    .category[hidden] { display: none; }
+    .seg { border: 0; background: none; color: var(--muted); padding: 7px 16px; border-radius: 6px; font: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer; }
+    .seg.on { background: var(--panel); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, .12); }
     .filter { display: flex; align-items: center; gap: 10px; padding: 10px 18px; border-bottom: 1px solid var(--line); }
     .filter label { font-weight: 600; font-size: 13.5px; }
     .picker .select, .filter .select { min-width: 0; }
@@ -186,6 +190,8 @@
       /* toque: alvos de 44px, texto de 16px no campo (abaixo disso o iPhone dá zoom ao digitar) */
       textarea { font-size: 16px; min-height: 140px; }
       .btn, .select { min-height: 44px; }
+      .category { display: flex; }
+      .seg { flex: 1 1 0; min-height: 40px; }
       .btn.primary { width: 100%; }
       .actions .hint { display: none; }
       .examples button { padding: 8px 4px; }
@@ -221,7 +227,8 @@
     <main>
       <section class="panel input-panel">
         <div class="panel-b">
-          <label class="lbl" for="list">Lista de compras <span class="hint">· um produto por linha, com o tamanho (ex.: Ovos 30un, Arroz 5kg)</span></label>
+          <div id="category-picker" class="category no-print" role="tablist" aria-label="O que comparar" hidden></div>
+          <label class="lbl" for="list">Lista de compras <span class="hint" id="list-hint">· um produto por linha, com o tamanho (ex.: Ovos 30un, Arroz 5kg)</span></label>
           <textarea id="list" placeholder="Arroz Tio João 5kg&#10;Feijão preto 1kg&#10;Leite integral 1L&#10;Ovos 30un"></textarea>
           <p class="hint" id="list-note"></p>
           <p class="examples" id="examples">Exemplos:</p>

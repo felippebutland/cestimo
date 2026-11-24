@@ -30,6 +30,13 @@ describe('toShareBody', () => {
   });
 });
 
+describe('toShareBody com categoria', () => {
+  it('leva a categoria do resultado (para "comparar de novo" no mesmo tipo de loja) e a omite quando não há', () => {
+    expect(toShareBody(data, 'farmacias').category).toBe('farmacias');
+    expect(Object.keys(toShareBody(data))).toEqual(['products']);
+  });
+});
+
 describe('shareUrl / parseShareHash', () => {
   it('monta e lê o mesmo id', () => {
     const url = shareUrl('https://cestimo.butland.sbs', 'AbC_123-xyz0');

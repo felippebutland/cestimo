@@ -17,13 +17,13 @@ async function readJson(res) {
 
 /**
  * @param {string} list
- * @param {{ fetchFn?: typeof fetch }} [opts]
+ * @param {{ fetchFn?: typeof fetch, category?: string }} [opts]
  * @returns {Promise<{ id: string, total: number }>}
  */
-export async function submitJob(list, { fetchFn = (...a) => fetch(...a) } = {}) {
+export async function submitJob(list, { fetchFn = (...a) => fetch(...a), category } = {}) {
   let res;
   try {
-    res = await fetchFn('/api/jobs', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ list }) });
+    res = await fetchFn('/api/jobs', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ list, ...(category ? { category } : {}) }) });
   } catch {
     throw new Error('Não consegui enviar a lista: a conexão foi interrompida. Tente de novo.');
   }

@@ -3,6 +3,7 @@ import { JobExpiredError, submitJob, waitForJob } from './jobs.js';
 import { installMode, isStandalone, pwaOpenOncePerSession } from './install.js';
 import { rankSources, rankTotals } from './mobileOrder.js';
 import { normalizeMarket, visibleMarkets } from './marketFilter.js';
+import { CATEGORY_TEXT, normalizeCategory, savedKey, sourcesFor } from './category.js';
 import { parsePushState, pushMode, queriesToWatch, urlBase64ToUint8Array } from './push.js';
 import { sparklinePath, summarize } from './trend.js';
 import { formatDay, parseSaved, snapshot, variations } from './history.js';
@@ -26,45 +27,89 @@ function track(name) {
   }
 }
 
-const SAVED_KEY = 'cestimo:ultima';
+/** Categoria da comparação (mercados ou farmácias). Cada uma tem a sua última lista guardada no navegador. */
+const CATEGORY_KEY = 'cestimo:categoria';
+let category = 'mercados';
+try { category = normalizeCategory(localStorage.getItem(CATEGORY_KEY), [{ id: 'mercados' }, { id: 'farmacias' }]); } catch { /* sem armazenamento */ }
+let CATEGORIES = [{ id: 'mercados', label: 'Mercados', sources: [] }];
+const text = () => CATEGORY_TEXT[category];
+
 const readSaved = () => {
-  try { return parseSaved(localStorage.getItem(SAVED_KEY)); } catch { return null; }
+  try { return parseSaved(localStorage.getItem(savedKey(category))); } catch { return null; }
 };
 const writeSaved = (value) => {
-  try { localStorage.setItem(SAVED_KEY, JSON.stringify(value)); } catch { /* armazenamento indisponível: segue sem memória */ }
+  try { localStorage.setItem(savedKey(category), JSON.stringify(value)); } catch { /* armazenamento indisponível: segue sem memória */ }
 };
-
-let SOURCES = [];
-const EXAMPLES = ['Arroz Tio João 5kg', 'Feijão preto 1kg', 'Leite integral 1L', 'Ovos 30un', 'Café 500g'];
 
 /* ---------- Configuração (cidade e mercados) ---------- */
 fetch('/api/config')
   .then((r) => r.json())
   .then((cfg) => {
-    SOURCES = cfg.sources;
+    CATEGORIES = Array.isArray(cfg.categories) && cfg.categories.length > 0 ? cfg.categories : [{ id: 'mercados', label: 'Mercados', sources: cfg.sources ?? [] }];
+    city = cfg.city ?? '';
     $('app-title').textContent = cfg.name;
-    if (cfg.city) {
-      document.title = `${cfg.name}: comparador de preços em ${cfg.city.split(',')[0]}`;
-      $('app-tagline').textContent = `Comparador de preços de supermercados · ${cfg.city}`;
-    }
+    if (city) document.title = `${cfg.name}: comparador de preços em ${city.split(',')[0]}`;
+    const wanted = normalizeCategory(category, CATEGORIES);
+    if (wanted !== category) setCategory(wanted, { restore: true });
+    else applyCategoryUI();
   })
   .catch(() => {});
 
-/* ---------- Última lista (só neste navegador) ---------- */
-const lastSaved = readSaved();
-if (lastSaved?.list.trim() && !$('list').value.trim()) {
-  $('list').value = lastSaved.list;
-  const when = lastSaved.snapshot ? ` de ${formatDay(lastSaved.snapshot.at)}` : '';
-  $('list-note').textContent = `Lista da sua última consulta${when}, guardada só neste aparelho. `;
-  $('list-note').append(el('button', { type: 'button', className: 'swap', textContent: 'Limpar', onclick: () => {
-    $('list').value = '';
-    $('list-note').textContent = '';
-    writeSaved({ list: '' });
-  } }));
+let city = '';
+applyCategoryUI(); // textos e exemplos já na primeira pintura; a configuração do servidor refina quando chegar
+
+/** Seletor "Mercados | Farmácias", textos e exemplos da categoria atual. */
+function applyCategoryUI() {
+  const t = text();
+  $('app-tagline').textContent = city ? `${t.tagline} · ${city}` : t.tagline;
+  $('list').placeholder = t.placeholder;
+  $('list-hint').textContent = `· ${t.hint}`;
+  renderExamples();
+  const picker = $('category-picker');
+  picker.hidden = CATEGORIES.length < 2;
+  picker.replaceChildren(...CATEGORIES.map((c) => {
+    const on = c.id === category;
+    return el('button', { type: 'button', className: `seg${on ? ' on' : ''}`, textContent: c.label, role: 'tab', ariaSelected: String(on), onclick: () => setCategory(c.id, { restore: true, track: true }) });
+  }));
 }
 
+/** Troca de categoria: limpa o resultado da outra e volta a lista guardada desta. */
+function setCategory(id, { restore = false, track: count = false } = {}) {
+  if (busy || id === category) return;
+  category = normalizeCategory(id, CATEGORIES);
+  try { localStorage.setItem(CATEGORY_KEY, category); } catch { /* sem armazenamento */ }
+  currentData = null;
+  sharedView = null;
+  compareState.market = null;
+  $('result').replaceChildren();
+  $('status').textContent = '';
+  if (restore) restoreSavedList({ force: true });
+  applyCategoryUI();
+  if (count) track('switch_category');
+}
+
+/* ---------- Última lista (só neste navegador) ---------- */
+function restoreSavedList({ force = false } = {}) {
+  if (force) { $('list').value = ''; $('list-note').textContent = ''; }
+  const lastSaved = readSaved();
+  if (lastSaved?.list.trim() && !$('list').value.trim()) {
+    $('list').value = lastSaved.list;
+    const when = lastSaved.snapshot ? ` de ${formatDay(lastSaved.snapshot.at)}` : '';
+    $('list-note').textContent = `Lista da sua última consulta${when}, guardada só neste aparelho. `;
+    $('list-note').append(el('button', { type: 'button', className: 'swap', textContent: 'Limpar', onclick: () => {
+      $('list').value = '';
+      $('list-note').textContent = '';
+      writeSaved({ list: '' });
+    } }));
+  }
+}
+restoreSavedList();
+
 /* ---------- Exemplos ---------- */
-for (const ex of EXAMPLES) {
+function renderExamples() {
+  $('examples').replaceChildren(document.createTextNode('Exemplos:'), ...text().examples.map(exampleButton));
+}
+function exampleButton(ex) {
   const link = el('button', { type: 'button', textContent: ex });
   link.addEventListener('click', () => {
     const area = $('list');
@@ -73,7 +118,7 @@ for (const ex of EXAMPLES) {
     area.focus();
     track('example');
   });
-  $('examples').append(link);
+  return link;
 }
 
 /* ---------- Tabela comparativa ---------- */
@@ -105,14 +150,14 @@ function cell(s, isBest, onSwap) {
 function marketFilter(names, market) {
   if (names.length < 2) return null;
   const select = el('select', { id: 'market-filter', className: 'select', ariaLabel: 'Mostrar só um mercado' },
-    el('option', { value: '', textContent: 'Todos os mercados' }), ...names.map((n) => el('option', { value: n, textContent: n })));
+    el('option', { value: '', textContent: text().filterAll }), ...names.map((n) => el('option', { value: n, textContent: n })));
   select.value = normalizeMarket(names, market) ?? '';
   select.addEventListener('change', () => {
     compareState.market = select.value === '' ? null : select.value;
     if (compareState.market) track('filter_market');
     if (currentData) render(currentData, { fresh: false });
   });
-  return el('div', { className: 'filter no-print' }, el('label', { htmlFor: 'market-filter', textContent: 'Mercado' }), select);
+  return el('div', { className: 'filter no-print' }, el('label', { htmlFor: 'market-filter', textContent: text().filterLabel }), select);
 }
 
 function trendLine(v, since) {
@@ -322,7 +367,7 @@ function render(data, { fresh = true, list, shared = null } = {}) {
 /** Busca a tendência dos últimos 30 dias dos produtos e redesenha a tabela com ela. Falha = segue sem tendência. */
 async function loadHistory(data) {
   try {
-    const res = await fetch('/api/history', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ queries: data.products.map((p) => p.query) }) });
+    const res = await fetch('/api/history', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ queries: data.products.map((p) => p.query), category }) });
     if (!res.ok) return;
     const { series } = await res.json();
     if (currentData !== data || !Array.isArray(series) || series.length !== data.products.length) return; // a tela já mudou
@@ -344,7 +389,7 @@ function shareControls() {
     button.disabled = true;
     note.textContent = '';
     try {
-      const res = await fetch('/api/share', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(toShareBody(currentData)) });
+      const res = await fetch('/api/share', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(toShareBody(currentData, category)) });
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `erro ${res.status}`);
       const { id, expiresAt } = await res.json();
       const url = shareUrl(location.origin, id);
@@ -385,7 +430,7 @@ const postJson = (url, body) => fetch(url, { method: 'POST', headers: { 'content
 
 /** Quem já ativou os avisos: manda a lista nova para o servidor acompanhar os produtos de agora. Falha = segue com a lista antiga. */
 async function syncPush(data) {
-  if (!readPush().on || currentPushMode() !== 'ready') return;
+  if (category !== 'mercados' || !readPush().on || currentPushMode() !== 'ready') return;
   try {
     const sub = await (await navigator.serviceWorker.ready).pushManager.getSubscription();
     const queries = queriesToWatch(data.products);
@@ -421,7 +466,7 @@ async function disablePush() {
 
 function pushControls() {
   const mode = currentPushMode();
-  if (mode === 'unsupported') return null;
+  if (mode === 'unsupported' || category !== 'mercados') return null; // aviso de queda de preço: só para mercados por enquanto
   const note = el('span', { className: 'muted-note' });
   const button = el('button', { type: 'button', className: 'btn' });
   const paint = () => { button.textContent = readPush().on ? 'Desativar avisos' : 'Avisar quando baixar'; };
@@ -473,6 +518,7 @@ async function loadShared(id) {
     const res = await fetch(`/api/share/${id}`);
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(body.error ?? `erro ${res.status}`);
+    if (body.result?.category) setCategory(body.result.category);
     render(body.result, { shared: { createdAt: body.createdAt } });
   } catch (e) {
     $('status').textContent = `Não foi possível abrir o link: ${e.message}`;
@@ -539,7 +585,8 @@ let reconnecting = 0;
 function startLoading(total, startedAt = Date.now()) {
   progress = { done: 0, total };
   reconnecting = 0;
-  const names = SOURCES.length ? SOURCES : ['mercados'];
+  const sources = sourcesFor(CATEGORIES, category);
+  const names = sources.length ? sources : [CATEGORY_TEXT[category].filterLabel.toLowerCase() + 's'];
   const spans = names.map((n) => el('span', { textContent: n }));
   $('chips').replaceChildren(...spans.flatMap((s, i) => (i ? [document.createTextNode(' · '), s] : [s])));
   $('loading').classList.add('on');
@@ -547,7 +594,7 @@ function startLoading(total, startedAt = Date.now()) {
   const tick = () => {
     spans.forEach((s, i) => s.classList.toggle('on', i === step % spans.length));
     const secs = Math.round((Date.now() - startedAt) / 1000);
-    $('load-title').textContent = reconnecting ? 'Reconectando…' : 'Consultando os mercados…';
+    $('load-title').textContent = reconnecting ? 'Reconectando…' : text().loading;
     $('load-sub').textContent = reconnecting
       ? 'A conexão oscilou. Sua consulta continua no servidor e será retomada.'
       : `${progress.done} de ${progress.total} ${progress.total === 1 ? 'produto' : 'produtos'} · ${secs} s`;
@@ -606,6 +653,8 @@ function setBusy(on, label) {
 }
 
 async function followJob(job) {
+  // consulta retomada após recarregar: volta para a categoria em que foi feita
+  if (job.category && job.category !== category) setCategory(job.category, { restore: false });
   setBusy(true, 'Comparando…');
   $('result').replaceChildren();
   $('status').textContent = '';
@@ -637,8 +686,8 @@ async function compareNow() {
   $('status').textContent = '';
   let job;
   try {
-    const { id, total } = await submitJob(list);
-    job = { id, total, startedAt: Date.now(), list };
+    const { id, total } = await submitJob(list, { category });
+    job = { id, total, startedAt: Date.now(), list, category };
     saveJob(job);
   } catch (e) {
     $('status').textContent = `Não foi possível comparar: ${e.message}`;

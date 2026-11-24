@@ -13,6 +13,7 @@ export function createAppMetrics(): Metrics {
   m.define('visits_by_client_total', 'counter', 'Visitas por dispositivo, sistema e navegador (categorias genéricas, sem robôs)');
   m.define('bot_visits_total', 'counter', 'Visitas de robôs (monitores, buscadores, scripts), fora das visitas humanas');
   m.define('ui_events_total', 'counter', 'Ações na interface, por evento (copy_item, copy_store, print_*, tab_*, pick_store, example)');
+  m.define('compare_category_total', 'counter', 'Comparações por categoria (mercados, farmacias)');
   m.define('list_items_total', 'counter', 'Itens buscados, por resultado (found = com preço confiável, missing = sem)');
   m.define('push_events_total', 'counter', 'Avisos de queda de preço, por evento (subscribe, unsubscribe, drop, sent, gone, failed)');
   m.define('source_probe_total', 'counter', 'Teste automático de cada mercado (busca fixa, de hora em hora), por resultado (ok, falha)');

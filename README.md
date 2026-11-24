@@ -320,7 +320,8 @@ Se o servidor está atrás de um roteador, em casa ou sem IP fixo, dá para usar
 | `PUSH_CHECK_HOUR` | `8` | hora (local) em que a rotina diária confere os preços e envia os avisos de queda |
 | `PUSH_MAX_SUBSCRIPTIONS` | `1000` | máximo de aparelhos com aviso ativado |
 | `PUSH_SUBJECT` | `https://cestimo.butland.sbs` | endereço de contato informado ao serviço de push (VAPID) |
-| `PROBE_TERM` | `leite integral 1L` | o que o teste automático busca |
+| `PROBE_TERM` | `leite integral 1L` | o que o teste automático busca nos mercados |
+| `PROBE_PHARMACY_TERM` | `dipirona 500mg` | o que o teste automático busca nas farmácias |
 | `TZ_OFFSET_MIN` | `-180` | fuso dos gráficos por dia, em minutos do UTC (-180 = Brasília) |
 | `GRAFANA_PASSWORD` | vazio | senha do Grafana (só no perfil `monitoring`) |
 
@@ -383,3 +384,13 @@ Defina a licença do seu repositório (por exemplo, adicionando um arquivo `LICE
 - **Dados:** `DATA_DIR/push.json` (aparelhos, produtos e referências) e `DATA_DIR/vapid.json` (chaves do servidor; **não apague**, trocar as chaves invalida todas as inscrições). Os dois entram no backup diário. O servidor só envia para endereços dos serviços de push dos navegadores (Chrome, Firefox, Safari e Windows).
 - **Aparelho que sumiu:** quando o serviço de push informa que a inscrição não existe mais (404/410), ela é removida sozinha.
 - **Métricas:** `push_events_total{event=subscribe|unsubscribe|drop|sent|gone|failed}` e, no `/admin`, as ações "Ativou/Desativou aviso de queda de preço".
+
+## Farmácias
+
+- **Seletor Mercados | Farmácias:** aparece acima da lista quando o `config/markets.json` tem a chave `pharmacies`. Cada categoria tem suas lojas, exemplos e última lista guardada. A API aceita `category` (`mercados`, padrão, ou `farmacias`) em `/api/jobs`, `/api/compare`, `/api/history` e `/api/share`.
+- **Lojas de Chapecó (plataforma VTEX):** Pague Menos, São João e Catarinense. Cada uma traz `"platform": "vtex"`, o `origin` e o `postalCode` (CEP que define a região, preços e estoque da cidade). O leitor abre uma página mínima da loja (`/robots.txt`) e chama de dentro dela a busca pública da própria vitrine (`product_search`), com a região do CEP.
+- **Redes que ficaram de fora:** Panvel, Drogasil e Droga Raia respondem "Access Denied" (403) a um navegador automatizado. Não contornamos esse tipo de proteção, então não estão na lista.
+- **Comparação de remédios:** a quantidade de comprimidos, cápsulas, ampolas e sachês vale mais que a dosagem em gramas ou o volume da ampola. A dosagem pedida (`500mg`, `1g` = `1000mg`, `FPS 50`) precisa aparecer no título: outra dosagem é outro produto e é recusada; título sem dosagem escrita aparece como "incerto". Quantidade diferente de comprimidos entra como "outro tamanho", com preço equivalente.
+- **Genérico x marca:** o app escolhe o item que mais se parece com o pedido. "Dipirona 500mg 10 comprimidos" pode trazer um genérico numa farmácia e a marca (Novalgina) em outra, com preços bem diferentes. Use "Não é esse?" para escolher o que você quer comparar.
+- **Ainda só para mercados:** o aviso de queda de preço (notificação).
+- **Métrica:** `compare_category_total{category}`.
