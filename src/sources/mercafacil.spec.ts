@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { graphqlErrorMessage, parseMercafacilCards } from './mercafacil.js';
+import { graphqlErrorMessage, isTransientSiteError, parseMercafacilCards } from './mercafacil.js';
 
 const card = (text: string, href = '/avenida/produto/m/arroz-branco-peruchi-5kg-144280') => ({ href, text });
 
@@ -47,3 +47,26 @@ describe('graphqlErrorMessage (site com backend fora do ar)', () => {
   });
 });
 
+
+describe('isTransientSiteError (problema momentâneo do site, vale repetir uma vez)', () => {
+  it.each([
+    ['o site informou erro: sorry, too many clients already'],
+    ['o site informou erro: Request failed with status code 503'],
+    ['o site informou erro: Request failed with status code 502'],
+    ['o site informou erro: connection timeout'],
+  ])('%s', (message) => {
+    expect(isTransientSiteError(new Error(message))).toBe(true);
+  });
+  it.each([
+    ['a página não renderizou os resultados'],
+    ['Amazon pediu CAPTCHA'],
+    ['o site informou erro: Request failed with status code 403'],
+    ['o site informou erro: produto não encontrado'],
+  ])('%s não repete', (message) => {
+    expect(isTransientSiteError(new Error(message))).toBe(false);
+  });
+  it('valor que não é Error também não quebra', () => {
+    expect(isTransientSiteError('x')).toBe(false);
+    expect(isTransientSiteError(undefined)).toBe(false);
+  });
+});

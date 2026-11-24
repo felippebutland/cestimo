@@ -1,3 +1,4 @@
+import { retryOnTransient } from './retry.js';
 import type { Offer, PriceSource } from '../domain/types.js';
 import { withPage } from './browser.js';
 
@@ -28,6 +29,10 @@ export function graphqlErrorMessage(payload: unknown): string | null {
   return typeof first?.message === 'string' ? first.message : null;
 }
 
+/** O site (banco de dados lotado, 502/503/504, tempo esgotado) disse que o problema é momentâneo. */
+export const isTransientSiteError = (e: unknown): boolean =>
+  e instanceof Error && e.message.startsWith('o site informou erro:') && /too many clients|status code 50[234]|timeout|temporar|try again/i.test(e.message);
+
 export type MercafacilConfig = { name: string; origin: string; basePath: string };
 
 export const BRASAO: MercafacilConfig = { name: 'Brasão', origin: 'https://www.brasao.com.br', basePath: '/avenida' };
@@ -39,7 +44,7 @@ export function createMercafacilSource(cfg: MercafacilConfig): PriceSource {
   return {
     name: cfg.name,
     search: (query) =>
-      withPage(async (page) => {
+      retryOnTransient(() => withPage(async (page) => {
         let apiError: string | null = null;
         page.on('response', (r) => {
           if (!r.url().includes('graphql')) return;
@@ -61,6 +66,6 @@ export function createMercafacilSource(cfg: MercafacilConfig): PriceSource {
             .filter((c) => c.text.includes('R$')),
         );
         return parseMercafacilCards(cards, cfg.name, cfg.origin);
-      }),
+      }), { isTransient: isTransientSiteError }),
   };
 }
