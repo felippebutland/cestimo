@@ -3,8 +3,8 @@
  * Rede primeiro, sempre: a cópia guardada só aparece quando a rede falha, então uma versão nova
  * nunca fica presa atrás de um cache velho. Nada de /api, /admin, /metrics nem /grafana passa por aqui.
  */
-const CACHE = 'cestimo-shell-v1';
-const SHELL = ['/', '/app.js', '/format.js', '/jobs.js', '/shoppingList.js', '/overrides.js', '/history.js', '/share.js', '/install.js', '/trend.js', '/push.js', '/mobileOrder.js', '/marketFilter.js', '/category.js', '/cmed.js', '/theme.js', '/account.js', '/me.js', '/modal.js', '/welcome.js', '/panel.js', '/theme-init.js', '/favicon.svg', '/icon-192.png'];
+const CACHE = 'cestimo-shell-v2';
+const SHELL = ['/', '/app.js', '/format.js', '/jobs.js', '/shoppingList.js', '/overrides.js', '/history.js', '/share.js', '/install.js', '/trend.js', '/push.js', '/mobileOrder.js', '/marketFilter.js', '/category.js', '/cmed.js', '/theme.js', '/account.js', '/me.js', '/modal.js', '/welcome.js', '/panel.js', '/theme-init.js', '/update.js', '/favicon.svg', '/icon-192.png'];
 const SKIP = /^\/(api|admin|metrics|grafana|healthz)(\/|$)/;
 
 self.addEventListener('install', (event) => {

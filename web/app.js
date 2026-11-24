@@ -5,6 +5,7 @@ import { rankSources, rankTotals } from './mobileOrder.js';
 import { normalizeMarket, visibleMarkets } from './marketFilter.js';
 import { cmedText, cmedTitle } from './cmed.js';
 import { initMe } from './me.js';
+import { updateAction } from './update.js';
 import { WELCOME_KEY, shouldWelcome, sourcesSummary } from './welcome.js';
 import { THEME_COLOR, THEME_KEY, THEMES, nextTheme, normalizeTheme, resolveTheme } from './theme.js';
 import { CATEGORY_TEXT, normalizeCategory, savedKey, sourcesFor } from './category.js';
@@ -737,7 +738,22 @@ if (sharedId && !savedJob) loadShared(sharedId);
 
 // App instalável: o service worker só guarda a casca da página para abrir sem internet (a rede vem primeiro).
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
-  navigator.serviceWorker.register('/sw.js').catch(() => {});
+  const hadController = Boolean(navigator.serviceWorker.controller);
+  navigator.serviceWorker.register('/sw.js')
+    .then((reg) => {
+      // app instalado fica aberto em segundo plano por dias: ao voltar para ele, procura versão nova
+      document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') reg.update().catch(() => {}); });
+    })
+    .catch(() => {});
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    const action = updateAction({ hadController, hasResult: currentData !== null, loading: $('loading').classList.contains('on') });
+    if (action === 'reload') { location.reload(); return; }
+    if (action === 'offer' && !$('update-bar')) {
+      document.body.append(el('div', { id: 'update-bar', className: 'update-bar no-print', role: 'status' },
+        el('span', { textContent: 'Nova versão do Cestimo.' }),
+        el('button', { type: 'button', className: 'btn sm brand', textContent: 'Atualizar', onclick: () => location.reload() })));
+    }
+  });
 }
 
 /* ---------- Instalar como app ---------- */
