@@ -26,6 +26,7 @@ const EVENT_LABELS = {
   push_off: 'Desativou aviso de queda de preço',
   install_click: 'Tocou em "Instalar app"',
   example: 'Usou um exemplo',
+  welcome_dismiss: 'Dispensou as boas-vindas ("Entendi")',
 };
 
 function card(label, value, hint, highlight = false) {

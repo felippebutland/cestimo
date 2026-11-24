@@ -1,8 +1,10 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { productKey } from '../history.js';
+import type { PushSubscription } from '../push/subscriptions.js';
 
 export const MAX_LISTS = 10;
 export const MAX_TRACKED = 20;
+export const MAX_DEVICES = 5;
 export type PanelCategory = 'mercados' | 'farmacias';
 
 export type SavedList = {
@@ -29,6 +31,10 @@ export function createPanelStore(db: DatabaseSync, now: () => number = Date.now)
   for (const col of ['snapshot TEXT', 'snapshot_at INTEGER', 'prev TEXT', "checked TEXT NOT NULL DEFAULT '[]'"]) {
     try { db.exec(`ALTER TABLE saved_lists ADD COLUMN ${col}`); } catch { /* já existe */ }
   }
+  db.exec(`CREATE TABLE IF NOT EXISTS push_devices (
+    endpoint TEXT PRIMARY KEY, user_id INTEGER NOT NULL, p256dh TEXT NOT NULL, auth TEXT NOT NULL, created_at INTEGER NOT NULL
+  );`);
+  try { db.exec('ALTER TABLE tracked_products ADD COLUMN notified_day TEXT'); } catch { /* já existe */ }
   // bancos criados antes do preço inicial ganham as colunas novas
   for (const col of ['start_price REAL', 'start_source TEXT']) {
     try { db.exec(`ALTER TABLE tracked_products ADD COLUMN ${col}`); } catch { /* já existe */ }
@@ -55,6 +61,16 @@ export function createPanelStore(db: DatabaseSync, now: () => number = Date.now)
   const selectTracked = db.prepare('SELECT id, query, category, created_at AS createdAt, start_price AS startPrice, start_source AS startSource FROM tracked_products WHERE user_id = ? ORDER BY created_at DESC, id DESC');
   const removeTracked = db.prepare('DELETE FROM tracked_products WHERE id = ? AND user_id = ?');
   const distinct = db.prepare('SELECT product_key, MIN(query) AS query, category FROM tracked_products GROUP BY product_key, category');
+
+  const deviceCount = db.prepare('SELECT COUNT(*) AS n FROM push_devices WHERE user_id = ? AND endpoint != ?');
+  const upsertDevice = db.prepare('INSERT OR REPLACE INTO push_devices (endpoint, user_id, p256dh, auth, created_at) VALUES (?, ?, ?, ?, ?)');
+  const selectDevices = db.prepare('SELECT endpoint, p256dh, auth FROM push_devices WHERE user_id = ? ORDER BY created_at');
+  const selectDevice = db.prepare('SELECT 1 AS x FROM push_devices WHERE user_id = ? AND endpoint = ?');
+  const deleteDevice = db.prepare('DELETE FROM push_devices WHERE endpoint = ?');
+  const deleteDeviceOf = db.prepare('DELETE FROM push_devices WHERE endpoint = ? AND user_id = ?');
+  const selectForNotify = db.prepare(`SELECT t.id, t.user_id AS userId, t.query, t.category, t.created_at AS createdAt, t.start_price AS startPrice, t.start_source AS startSource, t.notified_day AS notifiedDay
+    FROM tracked_products t WHERE t.user_id IN (SELECT DISTINCT user_id FROM push_devices) ORDER BY t.id`);
+  const setNotified = db.prepare('UPDATE tracked_products SET notified_day = ? WHERE id = ?');
 
   const nameKey = (name: string): string => productKey(name);
 
@@ -100,6 +116,23 @@ export function createPanelStore(db: DatabaseSync, now: () => number = Date.now)
       return { ok: true, added: true };
     },
     untrack: (userId: number, id: number): boolean => Number(removeTracked.run(id, userId).changes) > 0,
+    /** Aparelhos que recebem o aviso de queda da conta. O mesmo aparelho passa para a conta que o cadastrou por último. */
+    addDevice(userId: number, sub: PushSubscription): Result {
+      if ((deviceCount.get(userId, sub.endpoint) as { n: number }).n >= MAX_DEVICES) return { ok: false, reason: 'limit' };
+      upsertDevice.run(sub.endpoint, userId, sub.keys.p256dh, sub.keys.auth, now());
+      return { ok: true };
+    },
+    devices: (userId: number): PushSubscription[] =>
+      (selectDevices.all(userId) as Array<{ endpoint: string; p256dh: string; auth: string }>).map((r) => ({ endpoint: r.endpoint, keys: { p256dh: r.p256dh, auth: r.auth } })),
+    hasDevice: (userId: number, endpoint: string): boolean => selectDevice.get(userId, endpoint) !== undefined,
+    /** Remove o aparelho de qualquer conta (o serviço de push disse que ele não existe mais). */
+    removeDevice: (endpoint: string): boolean => Number(deleteDevice.run(endpoint).changes) > 0,
+    removeDeviceOf: (userId: number, endpoint: string): boolean => Number(deleteDeviceOf.run(endpoint, userId).changes) > 0,
+    /** Produtos acompanhados por contas que têm aparelho, com o dia do último aviso. */
+    trackedForNotify: (): Array<TrackedItem & { userId: number; notifiedDay: string | null }> =>
+      selectForNotify.all() as Array<TrackedItem & { userId: number; notifiedDay: string | null }>,
+    markNotified: (id: number, day: string): void => { setNotified.run(day, id); },
+
     /** Cada produto acompanhado por alguém, uma vez só (é o que a rotina diária consulta). */
     distinctTracked: (): Array<{ query: string; category: PanelCategory }> =>
       (distinct.all() as Array<{ query: string; category: PanelCategory }>).map((r) => ({ query: r.query, category: r.category })),

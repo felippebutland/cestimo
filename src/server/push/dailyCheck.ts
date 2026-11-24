@@ -5,7 +5,7 @@ export type FoundPrice = { priceBRL: number; source: string };
 /** Menor preço confiável de cada produto hoje (null = não achou). Uma busca por produto, não por pessoa. */
 export type FindPrices = (queries: string[]) => Promise<Map<string, FoundPrice | null>>;
 export type SendResult = 'ok' | 'gone' | 'erro';
-export type Send = (subscription: PushSubscription, payload: { title: string; body: string }) => Promise<SendResult>;
+export type Send = (subscription: PushSubscription, payload: { title: string; body: string; url?: string }) => Promise<SendResult>;
 
 export type CheckSummary = { checked: number; drops: number; sent: number; removed: number; failed: number };
 

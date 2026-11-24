@@ -15,7 +15,7 @@ export function createAppMetrics(): Metrics {
   m.define('ui_events_total', 'counter', 'Ações na interface, por evento (copy_item, copy_store, print_*, tab_*, pick_store, example)');
   m.define('compare_category_total', 'counter', 'Comparações por categoria (mercados, farmacias)');
   m.define('list_items_total', 'counter', 'Itens buscados, por resultado (found = com preço confiável, missing = sem)');
-  m.define('push_events_total', 'counter', 'Avisos de queda de preço, por evento (subscribe, unsubscribe, drop, sent, gone, failed)');
+  m.define('push_events_total', 'counter', 'Avisos de queda de preço, por evento (subscribe, unsubscribe, drop, sent, gone, failed; account_* = avisos dos produtos acompanhados por conta)');
   m.define('source_probe_total', 'counter', 'Teste automático de cada mercado (busca fixa, de hora em hora), por resultado (ok, falha)');
   m.define('auth_events_total', 'counter', 'Contas, por evento (signup = conta nova, login_ok, login_error, logout, account_deleted)');
   m.define('panel_events_total', 'counter', 'Painel da conta, por evento (list_saved, list_deleted, track_added, track_removed)');

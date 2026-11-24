@@ -101,7 +101,7 @@ export function createAuthStore(opts: { path: string; now?: () => number; sessio
     deleteUser(userId: number): void {
       db.exec('BEGIN');
       try {
-        for (const table of ['sessions', 'saved_lists', 'tracked_products']) {
+        for (const table of ['sessions', 'saved_lists', 'tracked_products', 'push_devices']) {
           try { db.prepare(`DELETE FROM ${table} WHERE user_id = ?`).run(userId); } catch { /* tabela do painel ainda não criada */ }
         }
         db.prepare('DELETE FROM users WHERE id = ?').run(userId);

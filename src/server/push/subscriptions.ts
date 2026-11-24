@@ -21,6 +21,16 @@ export type Parsed = { ok: true; value: SubscribeInput } | { ok: false };
 
 const normalizeQuery = (q: string): string => q.trim().replace(/\s+/g, ' ').toLowerCase().slice(0, MAX_QUERY_LENGTH);
 
+/** Valida só a inscrição do navegador (endereço de um serviço de push conhecido e chaves no formato certo). */
+export function parsePushSubscription(v: unknown): PushSubscription | null {
+  const sub = v as { endpoint?: unknown; keys?: { p256dh?: unknown; auth?: unknown } } | null;
+  if (!sub || !isPushEndpoint(sub.endpoint)) return null;
+  const p256dh = sub.keys?.p256dh;
+  const auth = sub.keys?.auth;
+  if (typeof p256dh !== 'string' || typeof auth !== 'string' || !KEY_FORMAT.test(p256dh) || !KEY_FORMAT.test(auth)) return null;
+  return { endpoint: sub.endpoint, keys: { p256dh, auth } };
+}
+
 export function parseSubscribeBody(body: unknown): Parsed {
   const bad: Parsed = { ok: false };
   if (typeof body !== 'object' || body === null) return bad;

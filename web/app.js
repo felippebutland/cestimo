@@ -5,6 +5,7 @@ import { rankSources, rankTotals } from './mobileOrder.js';
 import { normalizeMarket, visibleMarkets } from './marketFilter.js';
 import { cmedText, cmedTitle } from './cmed.js';
 import { initMe } from './me.js';
+import { WELCOME_KEY, shouldWelcome, sourcesSummary } from './welcome.js';
 import { THEME_COLOR, THEME_KEY, THEMES, nextTheme, normalizeTheme, resolveTheme } from './theme.js';
 import { CATEGORY_TEXT, normalizeCategory, savedKey, sourcesFor } from './category.js';
 import { parsePushState, pushMode, queriesToWatch, urlBase64ToUint8Array } from './push.js';
@@ -50,6 +51,8 @@ fetch('/api/config')
   .then((cfg) => {
     CATEGORIES = Array.isArray(cfg.categories) && cfg.categories.length > 0 ? cfg.categories : [{ id: 'mercados', label: 'Mercados', sources: cfg.sources ?? [] }];
     city = cfg.city ?? '';
+    if (city) $('welcome-city').textContent = ` em ${city.split(',')[0]}`;
+    $('how-sources').replaceChildren(...sourcesSummary(CATEGORIES).map((c) => el('p', {}, el('b', { textContent: `${c.label}: ` }), c.names)));
     $('app-title').textContent = cfg.name;
     if (city) document.title = `${cfg.name}: comparador de preços em ${city.split(',')[0]}`;
     if (cfg.auth?.google) void startMe();
@@ -156,7 +159,7 @@ function trackButton(p) {
   const { query } = p;
   const seen = p.stats ? { priceBRL: p.stats.cheapest.priceBRL, source: p.stats.cheapest.source } : null; // o preço que a pessoa está vendo agora vira o primeiro preço
   const on = me.isTracked(query, category);
-  return el('button', { type: 'button', className: `track no-print${on ? ' on' : ''}`, textContent: on ? '★ Acompanhando' : '☆ Acompanhar', title: on ? 'Parar de acompanhar o preço' : 'Acompanhar o preço deste produto', onclick: () => me.toggleTrack(query, category, seen) });
+  return el('button', { type: 'button', className: `track no-print${on ? ' on' : ''}`, textContent: on ? '★ Acompanhando o preço' : '☆ Acompanhar preço', title: on ? 'Já estamos acompanhando. Toque para parar.' : 'Todo dia de manhã conferimos o preço deste produto e mostramos no seu painel quando baixar. Ative o aviso e notificamos no celular também.', onclick: () => me.toggleTrack(query, category, seen) });
 }
 
 /** Seletor "Mercado" da comparação: todos ou só um. Não aparece com um mercado só. */
@@ -818,10 +821,40 @@ $('theme-btn').addEventListener('click', () => {
 systemDark.addEventListener('change', () => applyTheme(readTheme()));
 applyTheme(readTheme());
 
+/* ---------- Aviso de queda no celular, ligado à conta ---------- */
+const accountPush = {
+  mode: currentPushMode,
+  async isOn() {
+    const sub = await (await navigator.serviceWorker.ready).pushManager.getSubscription();
+    if (!sub) return false;
+    const res = await fetch(`/api/me/push?endpoint=${encodeURIComponent(sub.endpoint)}`, { cache: 'no-store' });
+    return res.ok && (await res.json()).on === true;
+  },
+  async enable() {
+    const permission = await Notification.requestPermission();
+    if (permission !== 'granted') throw new Error('Sem a permissão de notificações, não dá para avisar.');
+    const keyRes = await fetch('/api/push/key');
+    if (!keyRes.ok) throw new Error('Avisos indisponíveis no momento.');
+    const { key } = await keyRes.json();
+    const reg = await navigator.serviceWorker.ready;
+    const sub = (await reg.pushManager.getSubscription()) ?? (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(key) }));
+    const res = await postJson('/api/me/push', { subscription: sub.toJSON() });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `erro ${res.status}`);
+    track('push_on');
+  },
+  async disable() {
+    // só desliga a ligação com a conta; a inscrição do navegador pode estar em uso pelo aviso por lista
+    const sub = await (await navigator.serviceWorker.ready).pushManager.getSubscription();
+    if (sub) await postJson('/api/me/push/remove', { endpoint: sub.endpoint });
+    track('push_off');
+  },
+};
+
 /* ---------- Conta e painel (login com Google) ---------- */
 let me = null;
 async function startMe() {
   me = await initMe({
+    push: accountPush,
     getCurrent: () => {
       const list = $('list').value;
       // o resultado só vai junto se for da lista que está no campo (mesmos itens)
@@ -846,3 +879,16 @@ async function startMe() {
   $('save-list').addEventListener('click', () => me.saveCurrentList());
   if (currentData) render(currentData, { fresh: false });
 }
+
+/* ---------- Boas-vindas da primeira visita ---------- */
+(() => {
+  let stored = null;
+  try { stored = localStorage.getItem(WELCOME_KEY); } catch { /* sem armazenamento: mostra sempre */ }
+  if (!shouldWelcome(stored)) return;
+  $('welcome').hidden = false;
+  $('welcome-ok').addEventListener('click', () => {
+    $('welcome').hidden = true;
+    try { localStorage.setItem(WELCOME_KEY, '1'); } catch { /* vale só nesta visita */ }
+    track('welcome_dismiss');
+  });
+})();

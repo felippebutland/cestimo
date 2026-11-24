@@ -11,7 +11,9 @@
   <meta name="theme-color" content="#f6f7f8" media="(prefers-color-scheme: light)" />
   <meta name="theme-color" content="#0d0f12" media="(prefers-color-scheme: dark)" />
   <title>Cestimo — comparador de preços de supermercados</title>
-  <meta name="description" content="Compare os preços dos supermercados da sua cidade e descubra onde a sua lista de compras sai mais barata." />
+  <meta name="description" content="Cole sua lista de compras e veja onde sai mais barato: o Cestimo compara os preços dos supermercados e farmácias da sua cidade. Grátis e sem cadastro." />
+  <meta property="og:title" content="Cestimo: onde sai mais barato?" />
+  <meta property="og:description" content="Compare os preços dos supermercados e farmácias da sua cidade com a sua lista de compras. Grátis e sem cadastro." />
   <style>
     :root {
       color-scheme: light dark;
@@ -113,6 +115,8 @@
     .danger-zone summary::-webkit-details-marker { display: none; }
     .danger-zone summary:hover { color: var(--bad); text-decoration: underline; }
     .danger-zone[open] summary { color: var(--bad); }
+    .push-box { display: grid; gap: 8px; justify-items: start; padding: 14px; margin-bottom: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--brand-soft); }
+    .push-box .muted-note { margin: 0; color: var(--text); }
     .btn.sm { min-height: 36px; padding: 0 14px; font-size: 13px; }
     .btn.brand { background: var(--brand); color: var(--brand-fg); border-color: var(--brand); }
     .btn.brand:hover { background: var(--brand); opacity: .9; }
@@ -162,6 +166,8 @@
     #result { margin-top: 20px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; }
     .tabs { display: flex; gap: 20px; padding: 0 18px; border-bottom: 1px solid var(--line); }
     .tabs[hidden] { display: none; }
+    .tabs { overflow-x: auto; }
+    .tab { white-space: nowrap; }
     .tab { border: 0; border-bottom: 2px solid transparent; background: none; color: var(--muted); padding: 11px 0 9px; margin-bottom: -1px; font: inherit; font-weight: 600; cursor: pointer; }
     .tab.on { color: var(--text); border-bottom-color: var(--brand); }
     .note { margin: 0 0 14px; padding: 8px 12px; border-left: 3px solid var(--good); background: var(--good-bg); font-size: 13px; }
@@ -234,6 +240,19 @@
     .swap-dialog.modal .dialog-actions { margin-top: 12px; }
     .btn.danger-btn { background: var(--bad); color: #fff; border-color: var(--bad); }
     .btn.danger-btn:hover { background: var(--bad); opacity: .9; }
+    .welcome { display: flex; gap: 18px; align-items: flex-start; justify-content: space-between; padding: 18px; margin-bottom: 18px; border: 1px solid color-mix(in srgb, var(--brand) 40%, var(--line)); border-radius: 12px; background: var(--brand-soft); }
+    .welcome[hidden] { display: none; }
+    .welcome h2 { margin: 0 0 8px; font-size: 17px; }
+    .steps { margin: 0 0 10px; padding-left: 20px; display: grid; gap: 4px; }
+    .welcome .hint { margin: 0; }
+    .how { margin-top: 28px; }
+    .how h3 { margin: 22px 0 8px; font-size: 14.5px; }
+    .how-steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-top: 12px; }
+    .how-step { padding: 14px; border: 1px solid var(--line); border-radius: 12px; }
+    .how-step .n { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; background: var(--brand); color: var(--brand-fg); font-weight: 700; font-size: 14px; margin-bottom: 8px; }
+    .how-step b { display: block; margin-bottom: 4px; }
+    .how-step p, .how ul, .how p { margin: 0; color: var(--muted); }
+    .how ul { padding-left: 20px; display: grid; gap: 4px; }
     .swap-dialog::backdrop { background: rgba(0, 0, 0, .45); }
     .swap-dialog h3 { margin: 0 0 4px; font-size: 16px; }
     .opts { display: grid; gap: 8px; margin: 14px 0; }
@@ -303,6 +322,8 @@
       .row-actions { width: 100%; }
       .row-actions .btn { flex: 1 1 0; }
       .menu { position: fixed; left: 14px; right: 14px; top: 64px; min-width: 0; }
+      .welcome { flex-direction: column; }
+      .welcome .btn { width: 100%; }
       .picker, .filter { flex-direction: column; align-items: stretch; gap: 6px; }
       .filter { padding: 10px 14px; }
       .picker .select, .filter .select { width: 100%; }
@@ -355,6 +376,19 @@
     <section id="me-panel" class="panel me-panel no-print" hidden></section>
 
     <main>
+      <section id="welcome" class="welcome no-print" hidden>
+        <div>
+          <h2>Onde sai mais barato<span id="welcome-city"></span>?</h2>
+          <ol class="steps">
+            <li><b>Cole sua lista</b> de compras, um produto por linha.</li>
+            <li><b>Comparamos</b> os preços dos mercados e das farmácias da cidade.</li>
+            <li><b>Veja onde comprar</b>: o mais barato de cada item, ou o mercado que fecha a lista inteira mais em conta.</li>
+          </ol>
+          <p class="hint">Grátis e sem cadastro. Se quiser, entre com o Google para guardar listas e acompanhar preços.</p>
+        </div>
+        <button id="welcome-ok" class="btn brand" type="button">Entendi</button>
+      </section>
+
       <section class="panel input-panel">
         <div class="panel-b">
           <div id="category-picker" class="category no-print" role="tablist" aria-label="O que comparar" hidden></div>
@@ -380,6 +414,25 @@
       <section id="result"></section>
       <button id="to-top" class="to-top no-print" type="button" aria-label="Voltar ao topo para editar a lista" hidden>↑ Editar lista</button>
     </main>
+
+    <section id="how" class="panel how no-print">
+      <div class="panel-b">
+        <h2>Como funciona</h2>
+        <div class="how-steps">
+          <div class="how-step"><span class="n">1</span><b>Cole sua lista</b><p>Um produto por linha, com o tamanho: Arroz 5kg, Ovos 30un. Não precisa de cadastro.</p></div>
+          <div class="how-step"><span class="n">2</span><b>Comparamos os preços</b><p>Consultamos os sites dos mercados e das farmácias, ao mesmo tempo, na hora.</p></div>
+          <div class="how-step"><span class="n">3</span><b>Escolha onde comprar</b><p>Veja o menor preço de cada item ou o mercado que deixa a lista inteira mais barata.</p></div>
+        </div>
+        <h3>O que comparamos</h3>
+        <div id="how-sources"></div>
+        <h3>Com uma conta (opcional)</h3>
+        <ul>
+          <li><b>Lista de compras:</b> guarde a lista com os preços, marque o que já comprou e veja quanto os preços variaram.</li>
+          <li><b>Preços que acompanho:</b> escolha produtos e conferimos o preço todo dia de manhã, mostrando no seu painel quando baixar e, se você ativar, avisando por notificação no celular.</li>
+          <li>Tudo continua funcionando sem conta, é só entrar com o Google se quiser esses extras.</li>
+        </ul>
+      </div>
+    </section>
 
     <footer>Preços lidos dos sites públicos das lojas. Podem diferir do preço na loja física; confira antes de decidir. · <a href="privacidade.html">Privacidade</a></footer>
   </div>

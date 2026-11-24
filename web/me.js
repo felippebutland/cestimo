@@ -1,5 +1,5 @@
 import { accountView, loginFailed } from './account.js';
-import { ageLabel, changeBadge, changeLabel, changesSince, defaultListName, isStale, itemKey, listLabel, progress, sparkPoints, toggleChecked } from './panel.js';
+import { pushPanelState, ageLabel, changeBadge, changeLabel, changesSince, defaultListName, isStale, itemKey, listLabel, progress, sparkPoints, toggleChecked } from './panel.js';
 import { askConfirm, askText } from './modal.js';
 import { buildShoppingList, buildSingleStoreList } from './shoppingList.js';
 import { sparklinePath } from './trend.js';
@@ -43,18 +43,24 @@ export async function initMe(hooks) {
     isTracked: (query, category) => state.tracked.some((t) => t.category === category && norm(t.query) === norm(query)),
     onTrackedChange: () => {},
     async toggleTrack(query, category, seen = null) {
-      if (!state.user) { location.href = '/api/auth/google'; return; }
+      if (!state.user) {
+        if (await askConfirm({ title: 'Acompanhar o preço deste produto', message: 'Entre com o Google e, todo dia de manhã, conferimos o preço dele nos mercados e mostramos no seu painel quando baixar.', confirmLabel: 'Entrar com Google' })) location.href = '/api/auth/google';
+        return;
+      }
       const existing = state.tracked.find((t) => t.category === category && norm(t.query) === norm(query));
       try {
         if (existing) await api('DELETE', `/api/me/tracked/${existing.id}`);
         else await api('POST', '/api/me/tracked', { query, category, ...(seen ? { priceBRL: seen.priceBRL, source: seen.source } : {}) });
         await loadTracked();
-        toast(existing ? 'Produto removido do acompanhamento.' : 'Pronto! Acompanhando a partir do preço de hoje.');
+        toast(existing ? 'Parei de acompanhar o preço deste produto.' : 'Pronto! Todo dia de manhã conferimos o preço. Ative o aviso em "Preços que acompanho" para ser notificado quando baixar.');
         api_.onTrackedChange();
       } catch (e) { toast(e.message); }
     },
     async saveCurrentList() {
-      if (!state.user) { location.href = '/api/auth/google'; return; }
+      if (!state.user) {
+        if (await askConfirm({ title: 'Guardar esta lista', message: 'Entre com o Google para guardar a lista com os preços de hoje, usar como lista de compras no mercado (marcando o que já comprou) e ver depois quanto os preços variaram.', confirmLabel: 'Entrar com Google' })) location.href = '/api/auth/google';
+        return;
+      }
       const { category, list, result } = hooks.getCurrent();
       if (!list.trim()) { toast('Escreva a lista antes de salvar.'); return; }
       const name = await askText({ title: 'Salvar lista', label: 'Nome da lista', value: defaultListName(new Date()), confirmLabel: 'Salvar' });
@@ -84,7 +90,7 @@ export async function initMe(hooks) {
     } else if (view.mode === 'user') {
       const menu = el('div', { className: 'menu', role: 'menu', hidden: true },
         el('button', { type: 'button', role: 'menuitem', textContent: 'Minhas listas', onclick: () => open('lists') }),
-        el('button', { type: 'button', role: 'menuitem', textContent: 'Produtos acompanhados', onclick: () => open('tracked') }),
+        el('button', { type: 'button', role: 'menuitem', textContent: 'Preços que acompanho', onclick: () => open('tracked') }),
         el('hr'),
         el('button', { type: 'button', role: 'menuitem', textContent: 'Minha conta', onclick: () => open('account') }),
         el('button', { type: 'button', role: 'menuitem', textContent: 'Sair', onclick: logout }));
@@ -123,7 +129,7 @@ export async function initMe(hooks) {
 
   async function renderPanel() {
     const tabs = el('div', { className: 'tabs' },
-      ...[['lists', 'Minhas listas'], ['tracked', 'Acompanhando'], ['account', 'Conta']].map(([id, label]) =>
+      ...[['lists', 'Listas'], ['tracked', 'Preços que acompanho'], ['account', 'Conta']].map(([id, label]) =>
         el('button', { type: 'button', className: `tab${view === id ? ' on' : ''}`, textContent: label, onclick: () => { view = id; void renderPanel(); } })));
     const body = el('div', { className: 'panel-b' }, el('p', { className: 'muted-note', textContent: 'Carregando…' }));
     panel.replaceChildren(
@@ -258,10 +264,36 @@ export async function initMe(hooks) {
     ];
   }
 
+  /** Aviso de queda no celular: liga/desliga este aparelho na conta. */
+  async function pushBox() {
+    if (!hooks.push) return null;
+    const mode = hooks.push.mode();
+    let on = false;
+    try { on = mode === 'ready' ? await hooks.push.isOn() : false; } catch { /* sem rede: mostra desligado */ }
+    const st = pushPanelState({ mode, on });
+    if (!st.show) return null;
+    const note = el('p', { className: 'muted-note', textContent: st.note });
+    const box = el('div', { className: 'push-box' }, note);
+    if (st.action) {
+      const button = el('button', { type: 'button', className: st.action === 'enable' ? 'btn sm brand' : 'btn sm', textContent: st.button });
+      button.addEventListener('click', async () => {
+        button.disabled = true;
+        try {
+          if (st.action === 'enable') { await hooks.push.enable(); toast('Pronto! Avisaremos neste aparelho quando o preço baixar.'); }
+          else { await hooks.push.disable(); toast('Aviso desativado neste aparelho.'); }
+          await renderPanel();
+        } catch (e) { toast(e.message); button.disabled = false; }
+      });
+      box.append(button);
+    }
+    return box;
+  }
+
   async function trackedView() {
     await loadTracked();
-    if (state.tracked.length === 0) return [el('p', { className: 'muted-note', textContent: 'Você ainda não acompanha nenhum produto. Nos resultados, toque em "Acompanhar" no produto que quiser vigiar.' })];
+    if (state.tracked.length === 0) return [el('p', { className: 'muted-note', textContent: 'Você ainda não acompanha o preço de nenhum produto. Compare uma lista e toque em "☆ Acompanhar preço" no produto que quiser vigiar: todo dia de manhã conferimos o preço nos mercados e mostramos aqui quando baixar.' })];
     return [
+      await pushBox(),
       el('ul', { className: 'rows' }, ...state.tracked.map((t) => {
         const s = t.summary;
         const badge = changeBadge(s);
@@ -275,11 +307,11 @@ export async function initMe(hooks) {
             el('span', { className: `badge ${badge.kind}`, textContent: badge.text })),
           spark,
           el('div', { className: 'row-actions' },
-            el('button', { type: 'button', className: 'btn sm', textContent: 'Parar de acompanhar', onclick: async () => {
+            el('button', { type: 'button', className: 'btn sm', textContent: 'Parar de acompanhar o preço', onclick: async () => {
               try { await api('DELETE', `/api/me/tracked/${t.id}`); await renderPanel(); api_.onTrackedChange(); } catch (e) { toast(e.message); }
             } })));
       })),
-      el('p', { className: 'muted-note', textContent: 'Os preços são atualizados uma vez por dia, de manhã.' }),
+      el('p', { className: 'muted-note', textContent: 'Conferimos o preço destes produtos uma vez por dia, de manhã. O selo "Caiu" aparece quando o menor preço baixa 5% ou mais; ative o aviso acima para receber também uma notificação.' }),
     ];
   }
 
@@ -291,5 +323,6 @@ export async function initMe(hooks) {
   try { state.user = (await api('GET', '/api/me')).user; } catch { /* sem rede: segue deslogado */ }
   if (state.user) await loadTracked();
   paintAccount();
+  if (state.user && location.hash === '#acompanhando') { history.replaceState(null, '', location.pathname + location.search); void open('tracked'); }
   return api_;
 }

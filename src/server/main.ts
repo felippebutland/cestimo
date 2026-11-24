@@ -13,6 +13,7 @@ import { createHistoryStore, dayKey, historyKey } from './history.js';
 import { createAuthStore } from './auth/users.js';
 import { createPanelStore } from './auth/panelStore.js';
 import { refreshTracked } from './auth/trackedRefresh.js';
+import { notifyTrackedDrops } from './auth/trackedNotify.js';
 import { compare } from '../domain/compare.js';
 import { runBackup } from './backup.js';
 import { loadCmedFile } from './cmed.js';
@@ -204,8 +205,32 @@ if (authStore) {
       app.log.warn({ event: 'tracked_refresh_error', message: e instanceof Error ? e.message : String(e) });
     }
   };
-  setTimeout(() => void trackedRefresh(), 10 * 60 * 1000).unref();
-  setInterval(() => void trackedRefresh(), 60 * 60 * 1000).unref();
+  // Aviso de queda no celular: depois da rotina e a cada hora (quem ainda não foi avisado hoje, e só quando o preço de hoje caiu).
+  const trackedNotify = async (): Promise<void> => {
+    const day = dayKey(Date.now(), utcOffsetMinutes);
+    if (dueToday({ now: Date.now(), utcOffsetMinutes, hour: num('TRACK_REFRESH_HOUR', 7), lastRunDay: null }).due === false) return;
+    try {
+      const r = await notifyTrackedDrops({
+        day,
+        items: panel.trackedForNotify(),
+        devicesOf: (userId) => panel.devices(userId),
+        seriesOf: (query, category) => history.series(historyKey(query, category), 3),
+        send: sendPush,
+        markNotified: (id) => panel.markNotified(id, day),
+        removeDevice: (endpoint) => { panel.removeDevice(endpoint); },
+      });
+      metrics.inc('push_events_total', { event: 'account_drop' }, r.drops);
+      metrics.inc('push_events_total', { event: 'account_sent' }, r.sent);
+      metrics.inc('push_events_total', { event: 'account_gone' }, r.gone);
+      metrics.inc('push_events_total', { event: 'account_failed' }, r.failed);
+      if (r.users > 0) app.log.info({ event: 'tracked_notify', ...r });
+    } catch (e) {
+      app.log.warn({ event: 'tracked_notify_error', message: e instanceof Error ? e.message : String(e) });
+    }
+  };
+  const tick = async (): Promise<void> => { await trackedRefresh(); await trackedNotify(); };
+  setTimeout(() => void tick(), 10 * 60 * 1000).unref();
+  setInterval(() => void tick(), 60 * 60 * 1000).unref();
 }
 
 // Teste automático: uma busca fixa em cada mercado a cada hora (sem cache), para notar site que mudou mesmo sem ninguém usando.

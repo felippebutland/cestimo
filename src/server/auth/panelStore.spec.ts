@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { createAuthStore } from './users.js';
-import { createPanelStore, MAX_LISTS, MAX_TRACKED } from './panelStore.js';
+import { createPanelStore, MAX_DEVICES, MAX_LISTS, MAX_TRACKED } from './panelStore.js';
 
 const mk = () => {
   let now = 1_000;
@@ -102,6 +102,54 @@ describe('preço inicial ao acompanhar', () => {
     const { panel, ana } = mk();
     expect(panel.track(ana, { query: 'Sal 1kg', category: 'mercados' })).toEqual({ ok: true, added: true });
     expect(panel.track(ana, { query: 'sal 1kg', category: 'mercados' })).toEqual({ ok: true, added: false });
+  });
+});
+
+describe('aparelhos para aviso', () => {
+  const sub = (n: string) => ({ endpoint: `https://fcm.googleapis.com/${n}`, keys: { p256dh: 'pp', auth: 'aa' } });
+  it('cadastra, lista e remove o aparelho da conta', () => {
+    const { panel, ana } = mk();
+    expect(panel.addDevice(ana, sub('a'))).toEqual({ ok: true });
+    expect(panel.devices(ana)).toEqual([sub('a')]);
+    expect(panel.hasDevice(ana, sub('a').endpoint)).toBe(true);
+    expect(panel.removeDevice(sub('a').endpoint)).toBe(true);
+    expect(panel.devices(ana)).toEqual([]);
+  });
+  it('o mesmo aparelho cadastrado de novo não duplica, e passa para a conta nova', () => {
+    const { panel, ana, bia } = mk();
+    panel.addDevice(ana, sub('a'));
+    panel.addDevice(bia, sub('a'));
+    expect(panel.devices(ana)).toEqual([]);
+    expect(panel.devices(bia)).toHaveLength(1);
+  });
+  it('limite de aparelhos por conta', () => {
+    const { panel, ana } = mk();
+    for (let i = 0; i < MAX_DEVICES; i++) expect(panel.addDevice(ana, sub(`d${i}`)).ok).toBe(true);
+    expect(panel.addDevice(ana, sub('extra'))).toEqual({ ok: false, reason: 'limit' });
+  });
+  it('só o dono vê/remove pelo endpoint da própria conta', () => {
+    const { panel, ana, bia } = mk();
+    panel.addDevice(ana, sub('a'));
+    expect(panel.hasDevice(bia, sub('a').endpoint)).toBe(false);
+    expect(panel.removeDeviceOf(bia, sub('a').endpoint)).toBe(false);
+    expect(panel.removeDeviceOf(ana, sub('a').endpoint)).toBe(true);
+  });
+  it('produtos para avisar: só de contas com aparelho; marcar como avisado no dia', () => {
+    const { panel, ana, bia } = mk();
+    panel.track(ana, { query: 'Leite 1L', category: 'mercados' });
+    panel.track(bia, { query: 'Sal 1kg', category: 'mercados' });
+    panel.addDevice(ana, sub('a'));
+    const rows = panel.trackedForNotify();
+    expect(rows.map((r) => r.query)).toEqual(['Leite 1L']);
+    expect(rows[0]).toMatchObject({ userId: ana, notifiedDay: null });
+    panel.markNotified(rows[0]!.id, '2026-11-25');
+    expect(panel.trackedForNotify()[0]!.notifiedDay).toBe('2026-11-25');
+  });
+  it('excluir a conta apaga os aparelhos dela', () => {
+    const { auth, panel, ana } = mk();
+    panel.addDevice(ana, sub('a'));
+    auth.deleteUser(ana);
+    expect(panel.devices(ana)).toEqual([]);
   });
 });
 

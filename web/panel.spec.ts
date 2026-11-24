@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ageLabel, changeLabel, changesSince, isStale, itemKey, progress, toggleChecked, changeBadge, defaultListName, listLabel, sparkPoints } from './panel.js';
+import { pushPanelState, ageLabel, changeLabel, changesSince, isStale, itemKey, progress, toggleChecked, changeBadge, defaultListName, listLabel, sparkPoints } from './panel.js';
 
 const base = { latestBRL: 10, latestSource: 'Comper', latestDay: '2026-11-24', changePct: null, dropPct: null, dropped: false, spark: [10] };
 
@@ -108,5 +108,27 @@ describe('ageLabel e isStale', () => {
   it('fica velho depois de 3 dias', () => {
     expect(isStale(at, at + 2 * 86_400_000)).toBe(false);
     expect(isStale(at, at + 3 * 86_400_000 + 1)).toBe(true);
+  });
+});
+
+describe('pushPanelState (aviso no celular dos preços que acompanho)', () => {
+  it('sem suporte: não mostra nada', () => {
+    expect(pushPanelState({ mode: 'unsupported', on: false })).toEqual({ show: false });
+  });
+  it('iPhone no Safari: explica que precisa instalar o app, sem botão', () => {
+    const s = pushPanelState({ mode: 'ios-install', on: false });
+    expect(s).toMatchObject({ show: true, action: null });
+    expect(s.note).toMatch(/Tela de Início/);
+  });
+  it('bloqueado no navegador: explica como liberar, sem botão', () => {
+    const s = pushPanelState({ mode: 'denied', on: false });
+    expect(s).toMatchObject({ show: true, action: null });
+    expect(s.note).toMatch(/bloqueadas/);
+  });
+  it('pronto e desligado: botão para ativar neste aparelho', () => {
+    expect(pushPanelState({ mode: 'ready', on: false })).toMatchObject({ show: true, action: 'enable', button: '🔔 Ativar aviso neste aparelho' });
+  });
+  it('ligado: botão para desativar e nota de confirmação', () => {
+    expect(pushPanelState({ mode: 'ready', on: true })).toMatchObject({ show: true, action: 'disable', button: 'Desativar aviso neste aparelho' });
   });
 });

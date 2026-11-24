@@ -6,6 +6,7 @@ import { parseList } from '../../domain/parseList.js';
 import { dayKey, productKey, type HistoryStore } from '../history.js';
 import { serializeCookie } from './cookies.js';
 import { createRateLimiter } from '../limits.js';
+import { isPushEndpoint, parsePushSubscription } from '../push/subscriptions.js';
 import type { Metrics } from '../metrics.js';
 import { createPanelStore, type PanelCategory, type SavedList } from './panelStore.js';
 import { SESSION_COOKIE, userFromRequest, type AuthDeps } from './routes.js';
@@ -200,6 +201,32 @@ export function registerPanelRoutes(
     const id = asId((req.params as { id?: unknown }).id);
     if (id && panel.untrack(user.id, id)) { event('track_removed'); return reply.code(204).send(); }
     return reply.code(404).send({ error: 'Produto não encontrado.' });
+  });
+
+  // Aviso de queda no celular para os produtos acompanhados: liga/desliga este aparelho na conta.
+  app.get('/api/me/push', async (req, reply) => {
+    const user = needUser(req, reply);
+    if (!user) return reply;
+    const endpoint = (req.query as { endpoint?: unknown }).endpoint;
+    return noStore(reply).send({ on: isPushEndpoint(endpoint) && panel.hasDevice(user.id, endpoint) });
+  });
+  app.post('/api/me/push', async (req, reply) => {
+    const user = needUser(req, reply);
+    if (!user) return reply;
+    const sub = parsePushSubscription((req.body as { subscription?: unknown } | null)?.subscription);
+    if (!sub) return bad(reply, 'Inscrição inválida.');
+    const r = panel.addDevice(user.id, sub);
+    if (!r.ok) return reply.code(409).send({ error: 'Você já ativou o aviso no máximo de aparelhos. Desative em outro para ativar aqui.' });
+    opts.metrics?.inc('push_events_total', { event: 'account_subscribe' });
+    return reply.code(204).send();
+  });
+  app.post('/api/me/push/remove', async (req, reply) => {
+    const user = needUser(req, reply);
+    if (!user) return reply;
+    const endpoint = (req.body as { endpoint?: unknown } | null)?.endpoint;
+    if (!isPushEndpoint(endpoint)) return bad(reply, 'Inscrição inválida.');
+    if (panel.removeDeviceOf(user.id, endpoint)) opts.metrics?.inc('push_events_total', { event: 'account_unsubscribe' });
+    return reply.code(204).send();
   });
 
   app.delete('/api/me', async (req, reply) => {

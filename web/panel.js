@@ -76,3 +76,13 @@ export function ageLabel(at) {
 
 const STALE_AFTER_MS = 3 * 24 * 60 * 60 * 1000;
 export const isStale = (at, now) => now - at > STALE_AFTER_MS;
+
+/** O que mostrar no painel sobre o aviso de queda no celular, conforme o aparelho e se já está ligado. */
+export function pushPanelState({ mode, on }) {
+  if (mode === 'unsupported') return { show: false };
+  if (mode === 'ios-install') return { show: true, action: null, button: null, note: 'No iPhone, instale o Cestimo na Tela de Início (Compartilhar → Adicionar à Tela de Início) e ative o aviso por lá.' };
+  if (mode === 'denied') return { show: true, action: null, button: null, note: 'As notificações deste site estão bloqueadas. Libere nas configurações do navegador para receber o aviso.' };
+  return on
+    ? { show: true, action: 'disable', button: 'Desativar aviso neste aparelho', note: 'Aviso ativo: quando o preço de um produto baixar 5% ou mais, mandamos uma notificação para este aparelho.' }
+    : { show: true, action: 'enable', button: '🔔 Ativar aviso neste aparelho', note: 'Receba uma notificação neste aparelho quando o preço de um produto que você acompanha baixar 5% ou mais.' };
+}

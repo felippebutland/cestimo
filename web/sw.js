@@ -4,7 +4,7 @@
  * nunca fica presa atrás de um cache velho. Nada de /api, /admin, /metrics nem /grafana passa por aqui.
  */
 const CACHE = 'cestimo-shell-v1';
-const SHELL = ['/', '/app.js', '/format.js', '/jobs.js', '/shoppingList.js', '/overrides.js', '/history.js', '/share.js', '/install.js', '/trend.js', '/push.js', '/mobileOrder.js', '/marketFilter.js', '/category.js', '/cmed.js', '/theme.js', '/account.js', '/me.js', '/modal.js', '/panel.js', '/theme-init.js', '/favicon.svg', '/icon-192.png'];
+const SHELL = ['/', '/app.js', '/format.js', '/jobs.js', '/shoppingList.js', '/overrides.js', '/history.js', '/share.js', '/install.js', '/trend.js', '/push.js', '/mobileOrder.js', '/marketFilter.js', '/category.js', '/cmed.js', '/theme.js', '/account.js', '/me.js', '/modal.js', '/welcome.js', '/panel.js', '/theme-init.js', '/favicon.svg', '/icon-192.png'];
 const SKIP = /^\/(api|admin|metrics|grafana|healthz)(\/|$)/;
 
 self.addEventListener('install', (event) => {
@@ -52,15 +52,18 @@ self.addEventListener('push', (event) => {
   try { data = event.data ? event.data.json() : {}; } catch { /* aviso sem corpo legível */ }
   const title = typeof data.title === 'string' && data.title ? data.title : 'Cestimo';
   const body = typeof data.body === 'string' ? data.body : '';
-  event.waitUntil(self.registration.showNotification(title, { body, icon: '/icon-192.png', badge: '/icon-192.png', tag: 'cestimo-queda' }));
+  const url = typeof data.url === 'string' && data.url.startsWith('/') ? data.url : '/';
+  event.waitUntil(self.registration.showNotification(title, { body, icon: '/icon-192.png', badge: '/icon-192.png', tag: 'cestimo-queda', data: { url } }));
 });
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((all) => {
+      const target = (event.notification.data && event.notification.data.url) || '/';
       const open = all.find((c) => c.url.startsWith(self.location.origin));
-      return open ? open.focus() : self.clients.openWindow('/');
+      if (open) return open.navigate(target).then((c) => (c || open).focus()).catch(() => open.focus());
+      return self.clients.openWindow(target);
     }),
   );
 });
