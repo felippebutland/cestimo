@@ -17,6 +17,9 @@ services:
       BROWSER_PAGES: ${BROWSER_PAGES:-6}        # páginas do Chromium ao mesmo tempo: mais = busca mais rápida e mais memória (medido: 3→40s; 6, 9 e 12 ficam em ~21-30s; pico de memória real ~1,1 GB com 6, ~1,3 GB com 9 e ~1,5 GB com 12, o limite do container)
       SOURCE_CONCURRENCY: ${SOURCE_CONCURRENCY:-3}  # buscas simultâneas em cada loja
       TZ_OFFSET_MIN: ${TZ_OFFSET_MIN:--180}   # fuso dos gráficos por dia (-180 = Brasília)
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}          # login com Google (opcional): sem os três, o app funciona sem conta
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      PUBLIC_URL: ${PUBLIC_URL:-}                      # ex.: https://cestimo.butland.sbs
     volumes:
       - ./config:/app/config:ro
       - cestimo_data:/app/data            # números do painel (/admin)

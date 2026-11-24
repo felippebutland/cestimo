@@ -9,7 +9,11 @@ import { createDailyStats } from './dailyStats.js';
 import { buildPharmacySources, buildSources, readMarketsFile } from './markets.js';
 import { createTopList } from './metrics.js';
 import { createStateFile, startAutosave } from './persistence.js';
-import { createHistoryStore, dayKey } from './history.js';
+import { createHistoryStore, dayKey, historyKey } from './history.js';
+import { createAuthStore } from './auth/users.js';
+import { createPanelStore } from './auth/panelStore.js';
+import { refreshTracked } from './auth/trackedRefresh.js';
+import { compare } from '../domain/compare.js';
 import { runBackup } from './backup.js';
 import { loadCmedFile } from './cmed.js';
 import { runProbe } from './probe.js';
@@ -67,6 +71,16 @@ const history = createHistoryStore({ path: join(process.env.DATA_DIR ?? './data'
 history.purge();
 setInterval(() => { try { history.purge(); } catch { /* limpeza é só higiene */ } }, 24 * 60 * 60 * 1000).unref();
 
+// Login com Google: só liga com GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET e PUBLIC_URL. Contas e sessões em DATA_DIR/auth.db.
+const googleId = process.env.GOOGLE_CLIENT_ID;
+const googleSecret = process.env.GOOGLE_CLIENT_SECRET;
+const publicUrl = process.env.PUBLIC_URL;
+const authStore = googleId && googleSecret && publicUrl ? createAuthStore({ path: join(process.env.DATA_DIR ?? './data', 'auth.db') }) : null;
+if (authStore) {
+  authStore.purgeExpired();
+  setInterval(() => { try { authStore.purgeExpired(); } catch { /* limpeza é só higiene */ } }, 6 * 60 * 60 * 1000).unref();
+}
+
 // Avisos de queda de preço (Web Push): inscrições e referências de preço em DATA_DIR/push.json (gravadas na hora).
 const pushFile = createStateFile(join(process.env.DATA_DIR ?? './data', 'push.json'));
 const pushStore = createSubscriptionStore({ maxSubs: num('PUSH_MAX_SUBSCRIPTIONS', 1000), onChange: () => { pushFile.save(pushStore.snapshot()); } });
@@ -99,6 +113,25 @@ const backupNow = (): void => {
 // Lista oficial de preços máximos (CMED): gerada por `npm run cmed:build`. Sem o arquivo, só não mostra o teto.
 const cmed = loadCmedFile(process.env.CMED_FILE ?? fileURLToPath(new URL('../../config/cmed-pmc.json.gz', import.meta.url)));
 
+/** Busca nas lojas os produtos acompanhados que ainda não têm preço de hoje e grava no histórico. */
+const refreshTrackedItems = (items: Array<{ query: string; category: 'mercados' | 'farmacias' }>) => {
+  const day = dayKey(Date.now(), utcOffsetMinutes);
+  return refreshTracked({
+    items,
+    hasToday: (query, category) => history.series(historyKey(query, category), 1).some((pt) => pt.day === day),
+    search: async (category, queries) => (await compare(queries, category === 'farmacias' ? pharmacySources : sources)).products,
+    record: (category, p) => {
+      const rows = p.sources.flatMap((s) => (s.match && !s.match.uncertain ? [{ source: s.source, priceBRL: s.match.equivalentBRL }] : []));
+      history.record(day, historyKey(p.query, category), rows);
+    },
+  }).then((r) => {
+    metrics.inc('tracked_refresh_total', { result: 'refreshed' }, r.refreshed);
+    metrics.inc('tracked_refresh_total', { result: 'skipped' }, r.skipped);
+    metrics.inc('tracked_refresh_total', { result: 'failed' }, r.failed);
+    return r;
+  });
+};
+
 const app = buildApp({
   sources,
   pharmacySources,
@@ -111,6 +144,7 @@ const app = buildApp({
   daily,
   shares,
   history,
+  auth: authStore && googleId && googleSecret && publicUrl ? { store: authStore, publicUrl, google: { clientId: googleId, clientSecret: googleSecret }, onTrack: (query, category) => { void refreshTrackedItems([{ query, category }]).catch(() => {}); } } : undefined,
   push: { publicKey: vapid.publicKey, store: pushStore },
   utcOffsetMinutes,
   metricsToken: process.env.METRICS_TOKEN || undefined,
@@ -156,6 +190,24 @@ const pushCheck = async (): Promise<void> => {
 setTimeout(() => void pushCheck(), 5 * 60 * 1000).unref();
 setInterval(() => void pushCheck(), 60 * 60 * 1000).unref();
 
+// Produtos acompanhados por quem tem conta: uma busca por dia de cada produto (iguais de contas diferentes contam uma vez), para o painel mostrar preço fresco.
+if (authStore) {
+  const panel = createPanelStore(authStore.db);
+  let lastTrackedDay: string | null = null;
+  const trackedRefresh = async (): Promise<void> => {
+    const { due, day } = dueToday({ now: Date.now(), utcOffsetMinutes, hour: num('TRACK_REFRESH_HOUR', 7), lastRunDay: lastTrackedDay });
+    if (!due) return;
+    lastTrackedDay = day;
+    try {
+      app.log.info({ event: 'tracked_refresh', ...(await refreshTrackedItems(panel.distinctTracked())) });
+    } catch (e) {
+      app.log.warn({ event: 'tracked_refresh_error', message: e instanceof Error ? e.message : String(e) });
+    }
+  };
+  setTimeout(() => void trackedRefresh(), 10 * 60 * 1000).unref();
+  setInterval(() => void trackedRefresh(), 60 * 60 * 1000).unref();
+}
+
 // Teste automático: uma busca fixa em cada mercado a cada hora (sem cache), para notar site que mudou mesmo sem ninguém usando.
 const probeEveryMin = num('PROBE_EVERY_MIN', 60);
 if (probeEveryMin > 0) {
@@ -178,6 +230,7 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     stopAutosave();
     void app.close().then(closeBrowser).then(() => {
       try { history.close(); } catch { /* já fechado */ }
+      try { authStore?.close(); } catch { /* já fechado */ }
       process.exit(0);
     });
   });

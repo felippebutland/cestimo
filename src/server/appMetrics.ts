@@ -17,6 +17,16 @@ export function createAppMetrics(): Metrics {
   m.define('list_items_total', 'counter', 'Itens buscados, por resultado (found = com preço confiável, missing = sem)');
   m.define('push_events_total', 'counter', 'Avisos de queda de preço, por evento (subscribe, unsubscribe, drop, sent, gone, failed)');
   m.define('source_probe_total', 'counter', 'Teste automático de cada mercado (busca fixa, de hora em hora), por resultado (ok, falha)');
+  m.define('auth_events_total', 'counter', 'Contas, por evento (signup = conta nova, login_ok, login_error, logout, account_deleted)');
+  m.define('panel_events_total', 'counter', 'Painel da conta, por evento (list_saved, list_deleted, track_added, track_removed)');
+  m.define('tracked_refresh_total', 'counter', 'Rotina diária dos produtos acompanhados, por resultado (refreshed, skipped, failed)');
+  m.define('accounts_total', 'gauge', 'Contas existentes');
+  m.define('accounts_active', 'gauge', 'Contas com acesso na janela (window=7d ou 30d)');
+  m.define('accounts_new', 'gauge', 'Contas criadas na janela (window=24h ou 7d)');
+  m.define('accounts_returned', 'gauge', 'Contas que voltaram pelo menos um dia depois de criadas');
+  m.define('accounts_tracking', 'gauge', 'Contas que acompanham ao menos um produto');
+  m.define('saved_lists_total', 'gauge', 'Listas salvas nas contas');
+  m.define('tracked_products_total', 'gauge', 'Produtos acompanhados nas contas');
   m.define('savings_brl_total', 'counter', 'Economia estimada em R$: preço médio menos o mais barato, somado por produto');
   return m;
 }

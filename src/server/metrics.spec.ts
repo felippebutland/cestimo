@@ -84,3 +84,40 @@ describe('createTopList', () => {
     expect(t.top(2).map((x) => x.term)).toEqual(['x', 'y']);
   });
 });
+
+describe('gauge (valor que sobe e desce, como o total de contas)', () => {
+  it('set substitui o valor anterior e aparece no formato Prometheus', () => {
+    const m = createMetrics();
+    m.define('accounts_total', 'gauge', 'Contas criadas');
+    m.set('accounts_total', {}, 5);
+    m.set('accounts_total', {}, 7);
+    expect(m.render()).toContain('# TYPE accounts_total gauge');
+    expect(m.render()).toContain('accounts_total 7');
+    expect(m.render()).not.toContain('accounts_total 5');
+  });
+  it('com tags, cada combinação tem o seu valor', () => {
+    const m = createMetrics();
+    m.define('accounts_active', 'gauge', 'Contas ativas');
+    m.set('accounts_active', { window: '7d' }, 3);
+    m.set('accounts_active', { window: '30d' }, 9);
+    const out = m.render();
+    expect(out).toContain('accounts_active{window="7d"} 3');
+    expect(out).toContain('accounts_active{window="30d"} 9');
+    expect(m.gaugeSummary('accounts_active')).toEqual(expect.arrayContaining([{ labels: { window: '7d' }, value: 3 }]));
+  });
+  it('inc não mexe em gauge, e set não mexe em counter', () => {
+    const m = createMetrics();
+    m.define('g', 'gauge', 'g');
+    m.define('c', 'counter', 'c');
+    m.inc('g');
+    m.set('c', {}, 4);
+    expect(m.render()).not.toMatch(/^g \d/m);
+    expect(m.render()).not.toMatch(/^c 4/m);
+  });
+  it('gauge não vai para o disco (é recalculado)', () => {
+    const m = createMetrics();
+    m.define('g', 'gauge', 'g');
+    m.set('g', {}, 1);
+    expect(JSON.stringify(m.snapshot())).not.toContain('"g"');
+  });
+});

@@ -12,8 +12,12 @@ import { basicAuthOk, createGate, createRateLimiter } from './limits.js';
 import { createDailyStats, type DailyStats } from './dailyStats.js';
 import { createTopList, normalizeQuery, type Metrics } from './metrics.js';
 import { parseRecomputeBody } from './recomputeInput.js';
-import { createHistoryStore, dayKey, type HistoryStore } from './history.js';
+import { createHistoryStore, dayKey, historyKey, type HistoryStore } from './history.js';
 import { createShareStore, type ShareStore } from './shares.js';
+import { createAbuseGuard, type AbuseGuard } from './abuseGuard.js';
+import { looksLikeProduct } from '../domain/looksLikeProduct.js';
+import { registerAuthRoutes, type AuthDeps } from './auth/routes.js';
+import { registerPanelRoutes } from './auth/panelRoutes.js';
 
 export const MAX_ITEMS = 20;
 
@@ -27,10 +31,12 @@ export type Category = 'mercados' | 'farmacias';
 const CATEGORY_LABELS: Record<Category, string> = { mercados: 'Mercados', farmacias: 'Farmácias' };
 /** Sem a informação, vale "mercados" (compatível com o app antigo); texto desconhecido ou de outro tipo = null (inválido). */
 const parseCategory = (raw: unknown): Category | null => (raw === undefined || raw === 'mercados' ? 'mercados' : raw === 'farmacias' ? 'farmacias' : null);
-/** O histórico de farmácias fica separado do de mercados (mesmo texto de produto, lojas diferentes). */
-const historyKey = (query: string, category: Category): string => (category === 'farmacias' ? `farmacias: ${query}` : query);
 
 export type AppDeps = {
+  /** Bloqueio de IPs que insistem em buscar o que não é produto (padrão: 2 avisos, bloqueio de 24 h, em memória). */
+  abuse?: AbuseGuard;
+  /** Login com Google e contas. Sem isto, as rotas /api/auth/* não existem. */
+  auth?: AuthDeps;
   /** Avisos de queda de preço (Web Push). Sem isto, as rotas /api/push/* não existem. */
   push?: { publicKey: string; store: SubscriptionStore };
   /** Limite de inscrições/cancelamentos por IP (padrão: 30 por hora). */
@@ -120,6 +126,19 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   const historyLimiter = createRateLimiter(deps.historyRateLimit ?? { max: 1200, windowMs: 60 * 60 * 1000 });
   const startedAt = Date.now();
   const outcome = (name: string): void => metrics.inc('compare_requests_total', { outcome: name });
+  const abuse = deps.abuse ?? createAbuseGuard();
+  const blockedReply = (reply: FastifyReply, leftMs: number): FastifyReply => {
+    const secs = Math.max(1, Math.ceil(leftMs / 1000));
+    return reply.header('retry-after', String(secs)).code(403).send({ error: 'Acesso bloqueado por uso indevido. Este site é só para comparar preços de produtos.', retryAfterSeconds: secs });
+  };
+
+  // IP bloqueado por insistir em buscas que não são produtos: a API inteira fecha (a página abre, sem poder consultar).
+  app.addHook('onRequest', async (req, reply) => {
+    if (!req.url.startsWith('/api/') || isIgnored(req)) return undefined;
+    const left = abuse.isBlocked(req.ip);
+    if (left > 0) { outcome('blocked'); return blockedReply(reply, left); }
+    return undefined;
+  });
 
   app.addHook('onSend', async (_req, reply) => {
     for (const [name, value] of Object.entries(SECURITY_HEADERS)) reply.header(name, value);
@@ -164,10 +183,30 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     city: deps.city ?? '',
     sources: deps.sources.map((s) => s.name),
     categories: categoryIds.map((id) => ({ id, label: CATEGORY_LABELS[id], sources: sourcesOf(id).map((s) => s.name) })),
+    ...(deps.auth ? { auth: { google: true } } : {}),
   }));
+  registerAuthRoutes(app, deps.auth, metrics);
+  registerPanelRoutes(app, { auth: deps.auth, history, historyKey, utcOffsetMinutes: deps.utcOffsetMinutes ?? -180, metrics });
+  /** Totais das contas viram gauges (recalculados a cada leitura de /metrics ou /admin/stats). */
+  const accountStats = () => {
+    if (!deps.auth) return null;
+    const a = deps.auth.store.stats();
+    metrics.set('accounts_total', {}, a.total);
+    metrics.set('accounts_active', { window: '7d' }, a.active7);
+    metrics.set('accounts_active', { window: '30d' }, a.active30);
+    metrics.set('accounts_new', { window: '24h' }, a.newLast24h);
+    metrics.set('accounts_new', { window: '7d' }, a.new7d);
+    metrics.set('accounts_returned', {}, a.returned);
+    metrics.set('accounts_tracking', {}, a.usersTracking);
+    metrics.set('saved_lists_total', {}, a.lists);
+    metrics.set('tracked_products_total', {}, a.tracked);
+    return a;
+  };
 
-  app.get('/metrics', { preHandler: guard }, (_req, reply) =>
-    reply.header('content-type', 'text/plain; version=0.0.4; charset=utf-8').send(metrics.render()));
+  app.get('/metrics', { preHandler: guard }, (_req, reply) => {
+    accountStats();
+    return reply.header('content-type', 'text/plain; version=0.0.4; charset=utf-8').send(metrics.render());
+  });
 
   const sum = (name: string, label?: [string, string]): number =>
     metrics.counterSummary(name).filter((c) => !label || c.labels[label[0]] === label[1]).reduce((t, c) => t + c.value, 0);
@@ -246,6 +285,10 @@ export function buildApp(deps: AppDeps): FastifyInstance {
         misses: sum('cache_events_total', ['event', 'miss']),
       },
       top: top.top(20),
+      accounts: ((): unknown => {
+        const a = accountStats();
+        return a ? { ...a, signups: deps.auth!.store.signupsByDay(14, deps.utcOffsetMinutes ?? -180) } : null;
+      })(),
     };
   });
 
@@ -286,7 +329,20 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       return null;
     }
     const raw = body?.list;
-    const list = typeof raw === 'string' ? parseList(raw) : [];
+    const parsedList = typeof raw === 'string' ? parseList(raw) : [];
+    const list = parsedList.filter(looksLikeProduct);
+    if (list.length < parsedList.length) {
+      // texto que não é produto: nem chega às lojas; quem insiste é bloqueado
+      outcome('not_a_product');
+      if (!isIgnored(req)) {
+        const { blocked } = abuse.strike(req.ip);
+        if (blocked) { outcome('blocked'); void blockedReply(reply, abuse.isBlocked(req.ip)); return null; }
+      }
+      if (list.length === 0) {
+        void reply.code(400).send({ error: 'Isso não parece um produto. Digite o nome de produtos de mercado ou farmácia, como "Arroz 5kg".' });
+        return null;
+      }
+    }
     if (list.length === 0 || list.length > MAX_ITEMS) {
       outcome('bad_request');
       void reply.code(400).send({ error: list.length === 0 ? 'Informe ao menos um produto.' : `No máximo ${MAX_ITEMS} produtos por vez.` });

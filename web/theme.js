@@ -11,3 +11,5 @@ export const THEMES = [
 export const normalizeTheme = (raw) => (THEMES.some((t) => t.id === raw) ? raw : 'auto');
 
 export const resolveTheme = (pref, systemDark) => (pref === 'auto' ? (systemDark ? 'escuro' : 'claro') : pref);
+
+export const nextTheme = (pref) => THEMES[(THEMES.findIndex((t) => t.id === pref) + 1) % THEMES.length].id;

@@ -11,6 +11,9 @@ export const productKey = (query: string): string =>
 /** Dia (AAAA-MM-DD) no fuso configurado. */
 export const dayKey = (t: number, utcOffsetMinutes: number): string => new Date(t + utcOffsetMinutes * 60_000).toISOString().slice(0, 10);
 
+/** O histórico de farmácias fica separado do de mercados (mesmo texto de produto, lojas diferentes). */
+export const historyKey = (query: string, category: 'mercados' | 'farmacias'): string => (category === 'farmacias' ? `farmacias: ${query}` : query);
+
 export type PricePoint = { day: string; cheapestBRL: number; cheapestSource: string; averageBRL: number; sources: number };
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;

@@ -93,6 +93,20 @@ function renderCharts(days) {
   );
 }
 
+function renderAccounts(a) {
+  $('accounts-section').hidden = !a;
+  if (!a) return;
+  $('accounts-cards').replaceChildren(
+    card('Contas criadas', int(a.total), `${int(a.newLast24h)} nas últimas 24 h · ${int(a.new7d)} em 7 dias`, true),
+    card('Ativas (7 dias)', int(a.active7), a.total ? `${pct(a.active7 / a.total)} das contas` : ''),
+    card('Ativas (30 dias)', int(a.active30), a.total ? `${pct(a.active30 / a.total)} das contas` : ''),
+    card('Voltaram depois do 1º dia', a.total ? pct(a.returned / a.total) : '—', `${int(a.returned)} de ${int(a.total)}`),
+    card('Listas salvas', int(a.lists), a.total ? `${dec(a.lists / a.total)} por conta` : ''),
+    card('Produtos acompanhados', int(a.tracked), `${int(a.usersTracking)} conta(s) acompanhando`),
+  );
+  $('accounts-chart').replaceChildren(barChart('Contas criadas', a.signups.map((d) => ({ date: d.day, values: { signups: d.count } })), 'signups'));
+}
+
 function renderSources(sources) {
   const head = el('tr', {}, ...['Mercado', 'found', 'empty', 'erro', 'indisp.', 'sucesso', 'tempo'].map((h) => el('th', { textContent: h })));
   const rows = [...sources].sort((a, b) => a.source.localeCompare(b.source)).map((s) => {
@@ -164,6 +178,7 @@ async function load() {
     const d = await res.json();
     renderCards(d.totals);
     renderCharts(d.days);
+    renderAccounts(d.accounts);
     renderSources(d.sources);
     renderTop(d.top);
     renderIgnore(d.ignoredNow);

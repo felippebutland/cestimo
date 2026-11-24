@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeTheme, resolveTheme, THEME_COLOR, THEME_KEY } from './theme.js';
+import { nextTheme, normalizeTheme, resolveTheme, THEME_COLOR, THEME_KEY } from './theme.js';
 
 describe('normalizeTheme', () => {
   it('aceita auto, claro e escuro', () => {
@@ -25,5 +25,13 @@ describe('constantes', () => {
   it('cor da barra do navegador por tema e chave de armazenamento', () => {
     expect(THEME_COLOR).toEqual({ claro: '#f6f7f8', escuro: '#0d0f12' });
     expect(THEME_KEY).toBe('cestimo:tema');
+  });
+});
+
+describe('nextTheme', () => {
+  it('alterna auto → claro → escuro → auto', () => {
+    expect(nextTheme('auto')).toBe('claro');
+    expect(nextTheme('claro')).toBe('escuro');
+    expect(nextTheme('escuro')).toBe('auto');
   });
 });

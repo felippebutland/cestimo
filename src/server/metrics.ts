@@ -1,5 +1,5 @@
 export type Labels = Record<string, string>;
-type Kind = 'counter' | 'histogram';
+type Kind = 'counter' | 'histogram' | 'gauge';
 type Def = { kind: Kind; help: string; buckets: number[] };
 type CounterCell = { labels: Labels; value: number };
 type HistCell = { labels: Labels; counts: number[]; sum: number; count: number };
@@ -25,6 +25,7 @@ export function createMetrics() {
   const defs = new Map<string, Def>();
   const counters = new Map<string, Map<string, CounterCell>>();
   const hists = new Map<string, Map<string, HistCell>>();
+  const gauges = new Map<string, Map<string, CounterCell>>();
 
   return {
     define(name: string, kind: Kind, help: string, buckets: number[] = []): void {
@@ -39,6 +40,18 @@ export function createMetrics() {
       cell.value += by;
       cells.set(key, cell);
       counters.set(name, cells);
+    },
+
+    /** Gauge: valor que sobe e desce (total de contas, contas ativas…). Recalculado, nunca gravado em disco. */
+    set(name: string, labels: Labels, value: number): void {
+      if (defs.get(name)?.kind !== 'gauge' || !Number.isFinite(value)) return;
+      const cells = gauges.get(name) ?? new Map<string, CounterCell>();
+      cells.set(labelKey(labels), { labels, value });
+      gauges.set(name, cells);
+    },
+
+    gaugeSummary(name: string): Array<{ labels: Labels; value: number }> {
+      return [...(gauges.get(name)?.values() ?? [])].map(({ labels, value }) => ({ labels, value }));
     },
 
     observe(name: string, value: number, labels: Labels = {}): void {
@@ -100,8 +113,8 @@ export function createMetrics() {
       const lines: string[] = [];
       for (const [name, def] of defs) {
         lines.push(`# HELP ${name} ${def.help}`, `# TYPE ${name} ${def.kind}`);
-        if (def.kind === 'counter') {
-          for (const c of counters.get(name)?.values() ?? []) lines.push(`${name}${fmtLabels(c.labels)} ${c.value}`);
+        if (def.kind === 'counter' || def.kind === 'gauge') {
+          for (const c of (def.kind === 'counter' ? counters : gauges).get(name)?.values() ?? []) lines.push(`${name}${fmtLabels(c.labels)} ${c.value}`);
           continue;
         }
         for (const h of hists.get(name)?.values() ?? []) {

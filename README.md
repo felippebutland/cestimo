@@ -309,6 +309,8 @@ Se o servidor está atrás de um roteador, em casa ou sem IP fixo, dá para usar
 | `RATE_LIMIT_WINDOW_MIN` | `60` | tamanho da janela, em minutos |
 | `MAX_CONCURRENT` | `2` | comparações simultâneas |
 | `TRUST_PROXY` | desligado | `1` quando há proxy na frente (Caddy/Cloudflare), para ler o IP real |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `PUBLIC_URL` | vazio | login com Google (opcional). Cadastre `<PUBLIC_URL>/api/auth/google/callback` como URI de redirecionamento na credencial OAuth "Aplicativo da Web". Sem os três, o login não aparece |
+| `TRACK_REFRESH_HOUR` | `7` | hora (no fuso do app) a partir da qual a rotina diária atualiza o preço dos produtos acompanhados pelas contas |
 | `DATA_DIR` | `./data` | onde gravar os números do painel (no Docker: `/app/data`, volume) |
 | `SAVE_EVERY_SECONDS` | `30` | de quanto em quanto tempo gravar em disco |
 | `SHARE_TTL_DAYS` | `7` | por quantos dias um link de "Compartilhar" continua valendo |
@@ -398,3 +400,13 @@ Defina a licença do seu repositório (por exemplo, adicionando um arquivo `LICE
 - **Comparadores de farmácia** (Consulta Remédios, Buscapé) não são usados: os termos de uso proíbem coleta automatizada de dados.
 - **Ainda só para mercados:** o aviso de queda de preço (notificação).
 - **Métrica:** `compare_category_total{category}`.
+
+## Conta e painel (login com Google)
+
+Com `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` e `PUBLIC_URL`, o cabeçalho mostra "Entrar". Quem entra ganha um menu com:
+
+- **Minhas listas:** salvar a lista atual com um nome (até 10), usar, renomear e apagar. Ficam na conta e aparecem em qualquer aparelho.
+- **Produtos acompanhados:** botão "Acompanhar" em cada produto do resultado (até 20 por conta). O painel mostra o menor preço, onde está, a variação desde o início, um mini gráfico e o selo "Caiu X%" (queda de 5% ou mais). Uma rotina diária consulta cada produto acompanhado (iguais de contas diferentes, uma vez só) e grava no histórico.
+- **Excluir minha conta:** apaga listas, produtos, sessões, nome e e-mail.
+
+Tudo vale só para quem entra; sem login o app funciona como sempre. Os dados ficam em `DATA_DIR/auth.db`.

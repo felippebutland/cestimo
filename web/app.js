@@ -4,7 +4,8 @@ import { installMode, isStandalone, pwaOpenOncePerSession } from './install.js';
 import { rankSources, rankTotals } from './mobileOrder.js';
 import { normalizeMarket, visibleMarkets } from './marketFilter.js';
 import { cmedText, cmedTitle } from './cmed.js';
-import { THEMES, THEME_COLOR, THEME_KEY, normalizeTheme, resolveTheme } from './theme.js';
+import { initMe } from './me.js';
+import { THEME_COLOR, THEME_KEY, THEMES, nextTheme, normalizeTheme, resolveTheme } from './theme.js';
 import { CATEGORY_TEXT, normalizeCategory, savedKey, sourcesFor } from './category.js';
 import { parsePushState, pushMode, queriesToWatch, urlBase64ToUint8Array } from './push.js';
 import { sparklinePath, summarize } from './trend.js';
@@ -51,6 +52,7 @@ fetch('/api/config')
     city = cfg.city ?? '';
     $('app-title').textContent = cfg.name;
     if (city) document.title = `${cfg.name}: comparador de preços em ${city.split(',')[0]}`;
+    if (cfg.auth?.google) void startMe();
     const wanted = normalizeCategory(category, CATEGORIES);
     if (wanted !== category) setCategory(wanted, { restore: true });
     else applyCategoryUI();
@@ -148,6 +150,15 @@ function cell(s, isBest, onSwap) {
   return td;
 }
 
+/** "Acompanhar" no produto: só aparece quando o login existe no servidor. */
+function trackButton(p) {
+  if (!me) return null;
+  const { query } = p;
+  const seen = p.stats ? { priceBRL: p.stats.cheapest.priceBRL, source: p.stats.cheapest.source } : null; // o preço que a pessoa está vendo agora vira o primeiro preço
+  const on = me.isTracked(query, category);
+  return el('button', { type: 'button', className: `track no-print${on ? ' on' : ''}`, textContent: on ? '★ Acompanhando' : '☆ Acompanhar', title: on ? 'Parar de acompanhar o preço' : 'Acompanhar o preço deste produto', onclick: () => me.toggleTrack(query, category, seen) });
+}
+
 /** Seletor "Mercado" da comparação: todos ou só um. Não aparece com um mercado só. */
 function marketFilter(names, market) {
   if (names.length < 2) return null;
@@ -211,7 +222,7 @@ function comparisonPanel(data, onSwap, baseline, actions, series, market = null)
     const rank = rankSources(shown);
     // data-label e --o só valem no celular, onde cada produto vira um cartão com um mercado por linha (ver o CSS).
     const labeled = (td, label, order) => { td.dataset.label = label; td.style.setProperty('--o', String(order)); return td; };
-    return el('tr', {}, el('td', { className: 'prod' }, p.query, trendLine(trends[pi], since), historyLine(series?.[pi]), cmedLine(p.cmed)),
+    return el('tr', {}, el('td', { className: 'prod' }, p.query, trendLine(trends[pi], since), historyLine(series?.[pi]), cmedLine(p.cmed), trackButton(p)),
       ...shown.map((s, si) => labeled(cell(s, s.source === best, () => onSwap(pi, s.source)), s.source, rank[si])),
       labeled(el('td', { className: 'cell summary' }, el('span', { className: 'px', textContent: p.stats ? formatBRL(p.stats.averageBRL) : '—' })), 'Média dos mercados', 90),
       labeled(el('td', { className: 'cell summary' }, el('span', { className: 'px', textContent: p.stats ? `${formatBRL(p.stats.diffBRL)}${' '}(${formatPct(p.stats.diffPct)})` : '—' })), 'Mais barato × mais caro', 91));
@@ -736,6 +747,7 @@ const refreshInstall = () => {
     touchPoints: navigator.maxTouchPoints,
   });
   $('install').hidden = mode === 'hidden';
+  $('install-bar').hidden = mode === 'hidden';
   $('install').dataset.mode = mode;
 };
 window.addEventListener('beforeinstallprompt', (e) => {
@@ -780,21 +792,46 @@ syncToTop();
 
 /* ---------- Tema (automático, claro ou escuro) ---------- */
 const systemDark = window.matchMedia('(prefers-color-scheme: dark)');
+const THEME_ICON = {
+  auto: '<path d="M12 3a9 9 0 1 0 0 18V3z" fill="currentColor"/><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8"/>',
+  claro: '<circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M4.9 19.1l1.8-1.8M17.3 6.7l1.8-1.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
+  escuro: '<path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>',
+};
 function readTheme() { try { return normalizeTheme(localStorage.getItem(THEME_KEY)); } catch { return 'auto'; } }
 function applyTheme(pref) {
   if (pref === 'auto') delete document.documentElement.dataset.theme;
   else document.documentElement.dataset.theme = pref === 'claro' ? 'light' : 'dark';
   const color = THEME_COLOR[resolveTheme(pref, systemDark.matches)];
   document.querySelectorAll('meta[name="theme-color"]').forEach((m) => m.setAttribute('content', color));
-  $('theme').querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.theme === pref)));
+  const label = THEMES.find((t) => t.id === pref).label;
+  const btn = $('theme-btn');
+  btn.dataset.theme = pref;
+  btn.innerHTML = `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">${THEME_ICON[pref]}</svg>`;
+  btn.setAttribute('aria-label', `Aparência: ${label}. Toque para trocar.`);
+  btn.title = `Aparência: ${label} (toque para trocar)`;
 }
-for (const t of THEMES) {
-  const button = el('button', { type: 'button', textContent: t.label, title: t.id === 'auto' ? 'Seguir o tema do aparelho' : `Tema ${t.label.toLowerCase()}`, onclick: () => {
-    try { localStorage.setItem(THEME_KEY, t.id); } catch { /* sem armazenamento: vale só nesta visita */ }
-    applyTheme(t.id);
-  } });
-  button.dataset.theme = t.id;
-  $('theme').append(button);
-}
+$('theme-btn').addEventListener('click', () => {
+  const next = nextTheme(readTheme());
+  try { localStorage.setItem(THEME_KEY, next); } catch { /* sem armazenamento: vale só nesta visita */ }
+  applyTheme(next);
+});
 systemDark.addEventListener('change', () => applyTheme(readTheme()));
 applyTheme(readTheme());
+
+/* ---------- Conta e painel (login com Google) ---------- */
+let me = null;
+async function startMe() {
+  me = await initMe({
+    getCurrent: () => ({ category, list: $('list').value }),
+    useList: ({ category: c, list }) => {
+      if (c !== category) setCategory(c, { restore: false });
+      $('list').value = list;
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      $('list').focus();
+    },
+  });
+  me.onTrackedChange = () => { if (currentData) render(currentData, { fresh: false }); };
+  $('save-list').hidden = false;
+  $('save-list').addEventListener('click', () => me.saveCurrentList());
+  if (currentData) render(currentData, { fresh: false });
+}
