@@ -78,11 +78,13 @@ services:
     restart: unless-stopped
     environment:
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-}
-      GF_SERVER_ROOT_URL: https://${DOMAIN:-localhost}/grafana/
+      GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL:-https://${DOMAIN:-localhost}/grafana/}   # endereço público do Grafana (com a barra final)
       GF_SERVER_SERVE_FROM_SUB_PATH: "true"
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_ANALYTICS_REPORTING_ENABLED: "false"
       GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    ports:
+      - "127.0.0.1:3001:3000"   # só no próprio computador: origem para o Cloudflare Tunnel (grafana.seudominio)
     entrypoint: ["/bin/sh", "-c"]
     command:
       - '[ -n "$$GF_SECURITY_ADMIN_PASSWORD" ] || { echo "Defina GRAFANA_PASSWORD no .env"; exit 1; }; exec /run.sh'

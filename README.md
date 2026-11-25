@@ -268,7 +268,7 @@ Com o perfil `monitoring` no ar, o Grafana já traz 3 alertas (pasta **Cestimo**
 | Mercado sem achar produtos | 95% ou mais das buscas das últimas 6 h vieram vazias (mínimo de 8), por 30 min. Costuma ser o site do mercado ter mudado | info |
 | Cestimo fora do ar | o Prometheus não lê as métricas há 3 min | critical |
 
-Eles aparecem no topo do dashboard "Cestimo · visão geral" e em *Alerting → Alert rules*. Por padrão não enviam aviso para lugar nenhum. Para ser avisado no celular ou e-mail: *Alerting → Contact points → Add contact point* (Telegram, e-mail, Slack, webhook…), e depois em *Notification policies* troque o contact point da política padrão. Para mudar limites, edite o arquivo e reinicie o Grafana (`docker compose -f docker-compose.prod.yml --profile monitoring restart grafana`).
+Eles aparecem no topo do dashboard "Cestimo · visão geral" e em *Alerting → Alert rules*. Por padrão não enviam aviso para lugar nenhum. **Telegram, em 3 passos:** (1) no Telegram, converse com `@BotFather`, envie `/newbot` e copie o token; (2) ponha `TELEGRAM_BOT_TOKEN=...` no `.env` e mande "oi" para o seu bot; (3) rode `./scripts/telegram-setup.sh` (descobre o chat id, manda uma mensagem de teste e liga os alertas). Para outros destinos (e-mail, Slack, webhook…): *Alerting → Contact points → Add contact point* (Telegram, e-mail, Slack, webhook…), e depois em *Notification policies* troque o contact point da política padrão. Para mudar limites, edite o arquivo e reinicie o Grafana (`docker compose -f docker-compose.prod.yml --profile monitoring restart grafana`).
 
 ### Rodando a stack completa no seu computador
 
@@ -294,6 +294,10 @@ Se o servidor está atrás de um roteador, em casa ou sem IP fixo, dá para usar
 1. No painel da Cloudflare (Zero Trust → Networks → Tunnels), crie o túnel e um *Public hostname* com o serviço **`http://127.0.0.1:3000`**.
 2. Rode o `cloudflared` no computador com o token do túnel (por arquivo, para não aparecer na lista de processos): `cloudflared tunnel run --token-file ~/.seu-token`.
 3. Suba o app: `docker compose -f docker-compose.prod.yml --profile monitoring up -d`. Defina `TRUST_PROXY=1` (já é o padrão do compose) para o limite por IP enxergar o visitante real.
+
+**Grafana pelo mesmo túnel (opcional):** o Grafana (perfil `monitoring`) fica em `127.0.0.1:3001`. (1) No `.env`, defina `GRAFANA_ROOT_URL=https://grafana.seudominio.com/grafana/`. (2) No túnel, acrescente um *Public hostname* `grafana.seudominio.com` com o serviço `http://127.0.0.1:3001` (e o registro CNAME para o túnel). (3) **Não deixe o Grafana aberto só com a senha:** crie, em Zero Trust → Access → Applications, um aplicativo *Self-hosted* para `grafana.seudominio.com` com uma política *Allow* para o seu e-mail (código por e-mail). Faça o passo 3 antes do 2.
+
+**Proteger também o `/admin` e o `/metrics` (recomendado):** em Zero Trust → Access → Applications, crie um aplicativo *Self-hosted* com os destinos `seudominio.com/admin` e `seudominio.com/metrics` e uma política *Allow* para o seu e-mail. A senha (`METRICS_TOKEN`) continua valendo depois do código. O Prometheus lê o `/metrics` pela rede interna do Docker, então não é afetado. Para ler `/admin/stats` por script, use a origem local (`http://127.0.0.1:3000/admin/stats`, com a senha), não o endereço público.
 
 > Se o site der **502 Bad Gateway**, o `cloudflared` está no ar, mas **nada responde na origem**. Confira `curl http://127.0.0.1:3000/healthz`; o log do cloudflared mostra `connection refused` e o endereço que ele tentou. Duas causas comuns: o container parou, ou outra coisa ocupa a porta 3000.
 
