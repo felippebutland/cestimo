@@ -567,6 +567,47 @@ describe('POST /api/recompute (depois que a pessoa troca um item)', () => {
   });
 });
 
+describe('registro das trocas ("Não é esse?")', () => {
+  const basic = { authorization: `Basic ${Buffer.from('admin:x').toString('base64')}` };
+  const stats = async (app: ReturnType<typeof buildApp>) => (await app.inject({ method: 'GET', url: '/admin/stats', headers: basic })).json();
+  const send = (app: ReturnType<typeof buildApp>, payload: object) => app.inject({ method: 'POST', url: '/api/event', payload });
+  const detail = { source: 'fake', query: 'Feijão preto 1kg', category: 'mercados', from: 'Feijão A 1kg', to: 'Feijão B 1kg' };
+
+  it('o clique em "Não é esse?" é um evento "swap_open" e entra no registro com o produto', async () => {
+    const app = buildApp({ sources: [fake], metricsToken: 'x' });
+    expect((await send(app, { name: 'swap_open', detail: { source: 'fake', query: 'Feijão preto 1kg', category: 'mercados', from: 'Feijão A 1kg' } })).statusCode).toBe(204);
+    const s = await stats(app);
+    expect(s.events).toMatchObject({ swap_open: 1 });
+    expect(s.swaps.recent[0]).toMatchObject({ kind: 'open', source: 'fake', query: 'Feijão preto 1kg', from: 'Feijão A 1kg' });
+  });
+  it('a troca guarda o produto que saiu e o que entrou', async () => {
+    const app = buildApp({ sources: [fake], metricsToken: 'x' });
+    await send(app, { name: 'swap_match', detail });
+    const s = await stats(app);
+    expect(s.swaps).toMatchObject({ opens: 0, swaps: 1 });
+    expect(s.swaps.recent[0]).toMatchObject({ kind: 'swap', from: 'Feijão A 1kg', to: 'Feijão B 1kg' });
+    expect(s.swaps.bySource).toEqual([{ source: 'fake', opens: 0, swaps: 1 }]);
+  });
+  it('sem detalhe (app antigo) ou com loja inventada, só conta o evento e não registra nada', async () => {
+    const app = buildApp({ sources: [fake], metricsToken: 'x' });
+    expect((await send(app, { name: 'swap_match' })).statusCode).toBe(204);
+    expect((await send(app, { name: 'swap_match', detail: { ...detail, source: 'Inventada' } })).statusCode).toBe(204);
+    const s = await stats(app);
+    expect(s.events).toMatchObject({ swap_match: 2 });
+    expect(s.swaps.recent).toEqual([]);
+  });
+  it('detalhe em outros eventos é ignorado', async () => {
+    const app = buildApp({ sources: [fake], metricsToken: 'x' });
+    await send(app, { name: 'example', detail });
+    expect((await stats(app)).swaps.recent).toEqual([]);
+  });
+  it('quem o painel ignora (o próprio dono) não entra no registro', async () => {
+    const app = buildApp({ sources: [fake], metricsToken: 'x' });
+    await app.inject({ method: 'POST', url: '/api/event', payload: { name: 'swap_match', detail }, headers: { cookie: 'cestimo_ignorar=1' } });
+    expect((await stats(app)).swaps.recent).toEqual([]);
+  });
+});
+
 describe('links compartilhados (resultado congelado)', () => {
   const m = (priceBRL: number, extra: Record<string, unknown> = {}) => ({
     title: 'Item', priceBRL, equivalentBRL: priceBRL, sizeAdjusted: false, score: 1, uncertain: false, ...extra,

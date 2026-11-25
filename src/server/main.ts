@@ -6,6 +6,7 @@ import { buildApp } from './app.js';
 import { createAppMetrics } from './appMetrics.js';
 import { withCache } from './cache.js';
 import { createDailyStats } from './dailyStats.js';
+import { createSwapLog } from './swapLog.js';
 import { buildPharmacySources, buildSources, readMarketsFile } from './markets.js';
 import { createTopList } from './metrics.js';
 import { createStateFile, startAutosave } from './persistence.js';
@@ -45,18 +46,20 @@ try {
 
 const metrics = createAppMetrics();
 const top = createTopList(500);
+const swaps = createSwapLog();
 const daily = createDailyStats({ utcOffsetMinutes: Number(process.env.TZ_OFFSET_MIN ?? -180) });
 
 // Números em disco: sobrevivem a reinícios e novas versões (use um volume no Docker).
 const stateFile = createStateFile(join(process.env.DATA_DIR ?? './data', 'stats.json'));
-const saved = stateFile.load() as { metrics?: unknown; top?: unknown; daily?: unknown } | null;
+const saved = stateFile.load() as { metrics?: unknown; top?: unknown; daily?: unknown; swaps?: unknown } | null;
 if (saved) {
   metrics.restore(saved.metrics);
   top.restore(saved.top);
   daily.restore(saved.daily);
+  swaps.restore(saved.swaps);
 }
 const saveState = (): void => {
-  stateFile.save({ savedAt: new Date().toISOString(), metrics: metrics.snapshot(), top: top.snapshot(), daily: daily.snapshot() });
+  stateFile.save({ savedAt: new Date().toISOString(), metrics: metrics.snapshot(), top: top.snapshot(), daily: daily.snapshot(), swaps: swaps.snapshot() });
 };
 const sharesFile = createStateFile(join(process.env.DATA_DIR ?? './data', 'shares.json'));
 // Grava na hora a cada link criado: quem acabou de compartilhar não pode perder o link num reinício.
@@ -143,6 +146,7 @@ const app = buildApp({
   metrics,
   top,
   daily,
+  swaps,
   shares,
   history,
   auth: authStore && googleId && googleSecret && publicUrl ? { store: authStore, publicUrl, google: { clientId: googleId, clientSecret: googleSecret }, onTrack: (query, category) => { void refreshTrackedItems([{ query, category }]).catch(() => {}); } } : undefined,

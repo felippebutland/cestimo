@@ -10,6 +10,7 @@ import { createAppMetrics } from './appMetrics.js';
 import { parseClient } from './client.js';
 import { basicAuthOk, createGate, createRateLimiter } from './limits.js';
 import { createDailyStats, type DailyStats } from './dailyStats.js';
+import { createSwapLog, parseSwapDetail, type SwapLog } from './swapLog.js';
 import { createTopList, normalizeQuery, type Metrics } from './metrics.js';
 import { parseRecomputeBody } from './recomputeInput.js';
 import { createHistoryStore, dayKey, historyKey, type HistoryStore } from './history.js';
@@ -22,7 +23,7 @@ import { registerPanelRoutes } from './auth/panelRoutes.js';
 export const MAX_ITEMS = 20;
 
 /** Ações da interface que viram contagem (lista fechada: nada que o usuário digite entra aqui). */
-export const UI_EVENTS = ['copy_item', 'copy_store', 'print_item', 'print_store', 'tab_item', 'tab_store', 'pick_store', 'example', 'swap_match', 'pwa_open', 'pwa_install', 'install_click', 'push_on', 'push_off', 'filter_market', 'switch_category', 'welcome_dismiss'] as const;
+export const UI_EVENTS = ['copy_item', 'copy_store', 'print_item', 'print_store', 'tab_item', 'tab_store', 'pick_store', 'example', 'swap_match', 'swap_open', 'pwa_open', 'pwa_install', 'install_click', 'push_on', 'push_off', 'filter_market', 'switch_category', 'welcome_dismiss'] as const;
 const isUiEvent = (v: unknown): v is (typeof UI_EVENTS)[number] => typeof v === 'string' && (UI_EVENTS as readonly string[]).includes(v);
 
 const ADMIN_DIR = new URL('./admin/', import.meta.url);
@@ -56,6 +57,8 @@ export type AppDeps = {
   /** Ranking de termos e contagem por dia; passe os seus para poder gravá-los em disco. */
   top?: ReturnType<typeof createTopList>;
   daily?: DailyStats;
+  /** Registro anônimo de "Não é esse?" e trocas, com os produtos (aparece no /admin). */
+  swaps?: SwapLog;
   /** Máximo de comparações por IP na janela. Sem isto, não há limite. */
   rateLimit?: { max: number; windowMs: number };
   /** Histórico de preços (SQLite); sem ele, vale só em memória. */
@@ -117,6 +120,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   const metrics = deps.metrics ?? createAppMetrics();
   const top = deps.top ?? createTopList(500);
   const daily = deps.daily ?? createDailyStats();
+  const swaps = deps.swaps ?? createSwapLog();
   const eventLimiter = createRateLimiter({ max: 300, windowMs: 60 * 60 * 1000 });
   const adminHtml = readFileSync(new URL('admin.html', ADMIN_DIR), 'utf8');
   const adminJs = readFileSync(new URL('admin.js', ADMIN_DIR), 'utf8');
@@ -270,6 +274,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
         copyRate: compares ? Math.round((copies / compares) * 1000) / 1000 : 0,
       },
       events,
+      swaps: { ...swaps.summary(), recent: swaps.recent(40) },
       clients: {
         device: breakdown('device'),
         os: breakdown('os'),
@@ -295,9 +300,15 @@ export function buildApp(deps: AppDeps): FastifyInstance {
 
   app.post('/api/event', async (req, reply) => {
     if (!eventLimiter.check(req.ip).allowed) return reply.code(429).send();
-    const name = (req.body as { name?: unknown } | null)?.name;
+    const body = req.body as { name?: unknown; detail?: unknown } | null;
+    const name = body?.name;
     if (!isUiEvent(name)) return reply.code(400).send({ error: 'evento inválido' });
     if (isIgnored(req)) return reply.code(204).send();
+    // Só "Não é esse?" e troca levam detalhe (qual produto): lojas e categoria precisam existir, os textos são limpos e cortados.
+    if (name === 'swap_open' || name === 'swap_match') {
+      const detail = parseSwapDetail(body?.detail, [...deps.sources, ...(deps.pharmacySources ?? [])].map((s) => s.name));
+      if (detail) swaps.add(name === 'swap_open' ? 'open' : 'swap', detail);
+    }
     metrics.inc('ui_events_total', { event: name });
     daily.add(name.startsWith('copy') ? 'copy' : name.startsWith('print') ? 'print' : name);
     return reply.code(204).send();

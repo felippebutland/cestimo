@@ -24,10 +24,10 @@ const el = (tag, props = {}, ...children) => {
   return node;
 };
 
-/** Conta uma ação anônima (só o nome da ação, nunca o conteúdo da lista). Falhas são ignoradas. */
-function track(name) {
+/** Conta uma ação anônima (só o nome da ação, nunca o conteúdo da lista). Só "Não é esse?" e a troca levam detalhe: busca, loja e os dois produtos. Falhas são ignoradas. */
+function track(name, detail) {
   try {
-    fetch('/api/event', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name }), keepalive: true }).catch(() => {});
+    fetch('/api/event', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(detail ? { name, detail } : { name }), keepalive: true }).catch(() => {});
   } catch {
     // sem rede: sem problema
   }
@@ -568,6 +568,7 @@ function openSwap(productIndex, sourceName) {
   const product = currentData?.products[productIndex];
   const source = product?.sources.find((x) => x.source === sourceName);
   if (!product || !source) return;
+  track('swap_open', { source: sourceName, query: product.query, category, from: source.match?.title });
   const dialog = el('dialog', { className: 'swap-dialog', ariaLabel: `Trocar item em ${sourceName}` });
   const close = () => { dialog.close(); dialog.remove(); };
   const choose = (choice) => { close(); applySwap(productIndex, sourceName, choice); };
@@ -594,7 +595,10 @@ async function applySwap(productIndex, sourceName, choice) {
   if (next === currentData) return;
   recomputing = true;
   $('status').textContent = '';
-  track('swap_match');
+  const product = currentData.products[productIndex];
+  const source = product?.sources.find((x) => x.source === sourceName);
+  const chosen = choice === null ? '(nenhum destes)' : choice === 'suggested' ? source?.suggested?.title ?? '(sugerido)' : source?.alternatives?.[choice]?.title;
+  track('swap_match', { source: sourceName, query: product?.query, category, from: source?.match?.title, to: chosen });
   try {
     const res = await fetch('/api/recompute', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(toRecomputeBody(next)) });
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `erro ${res.status}`);

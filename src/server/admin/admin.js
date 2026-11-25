@@ -17,6 +17,7 @@ const EVENT_LABELS = {
   tab_item: 'Abriu "mais barato por item"',
   tab_store: 'Abriu "um mercado só"',
   pick_store: 'Trocou de mercado no seletor',
+  swap_open: 'Tocou em "Não é esse?" (abriu as opções)',
   swap_match: 'Trocou o item escolhido',
   pwa_open: 'Abriu o app instalado (PWA)',
   pwa_install: 'Instalou o app',
@@ -115,6 +116,27 @@ function renderAccounts(a) {
   $('accounts-chart').replaceChildren(barChart('Contas criadas', a.signups.map((d) => ({ date: d.day, values: { signups: d.count } })), 'signups'));
 }
 
+function renderSwaps(w) {
+  $('swaps-section').hidden = !w;
+  if (!w) return;
+  const rate = w.opens ? pct(w.swaps / w.opens) : '—';
+  $('swaps-cards').replaceChildren(
+    card('Abriram "Não é esse?"', int(w.opens), 'toques no botão'),
+    card('Trocaram o produto', int(w.swaps), `${rate} de quem abriu`, true),
+    ...w.bySource.slice(0, 4).map((s) => card(s.source, `${int(s.swaps)} / ${int(s.opens)}`, 'trocas / aberturas')),
+  );
+  const when = (at) => new Date(at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' });
+  const head = el('tr', {}, ...['Quando', 'Ação', 'Loja', 'Busca', 'Saiu', 'Entrou'].map((h) => el('th', { textContent: h })));
+  const rows = w.recent.map((e) => el('tr', {},
+    el('td', { textContent: when(e.at) }),
+    el('td', { textContent: e.kind === 'swap' ? 'Trocou' : 'Só abriu' }),
+    el('td', { textContent: e.source }),
+    el('td', { textContent: e.query }),
+    el('td', { textContent: e.from ?? '—' }),
+    el('td', { textContent: e.kind === 'swap' ? e.to ?? '—' : '—' })));
+  $('swaps-recent').replaceChildren(head, ...(rows.length ? rows : [el('tr', {}, el('td', { colSpan: 6, textContent: 'Nada registrado ainda.' }))]));
+}
+
 function renderSources(sources) {
   const head = el('tr', {}, ...['Mercado', 'found', 'empty', 'erro', 'indisp.', 'sucesso', 'tempo'].map((h) => el('th', { textContent: h })));
   const rows = [...sources].sort((a, b) => a.source.localeCompare(b.source)).map((s) => {
@@ -187,6 +209,7 @@ async function load() {
     renderCards(d.totals);
     renderCharts(d.days);
     renderAccounts(d.accounts);
+    renderSwaps(d.swaps);
     renderSources(d.sources);
     renderTop(d.top);
     renderIgnore(d.ignoredNow);
