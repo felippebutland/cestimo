@@ -16,6 +16,16 @@ const OFF_TOPIC = new Set([
   'ignore', 'ignorar', 'instructions', 'instrucoes', 'jailbreak',
 ]);
 
+/**
+ * Palavrão e xingamento. Só entram palavras que nunca são nome de produto: "cacete" (pão), "pinto" (feijão), "lixo" (saco de lixo)
+ * e "pau" ficam de fora de propósito. As letras repetidas são juntadas (merdaaa = merda) e acentos não contam.
+ */
+const collapse = (w: string): string => w.replace(/(.)\1+/g, '$1');
+const PROFANITY = new Set([
+  'merda', 'bosta', 'porra', 'caralho', 'carai', 'foda', 'fodase', 'foder', 'cu', 'cuzao', 'cuzona', 'cuzinho', 'cuzinha', 'puta', 'putaria', 'buceta', 'viado', 'arrombado',
+  'fdp', 'pqp', 'vsf', 'vtnc', 'tnc', 'babaca', 'idiota', 'imbecil', 'retardado', 'cretino', 'otario', 'vagabundo', 'vagabunda', 'safado', 'safada',
+].map(collapse));
+
 /** Palavras funcionais do inglês: uma só já mostra que a frase não é em português. "in" fica de fora (vale em "in natura"). */
 const ENGLISH = new Set(['the', 'how', 'what', 'why', 'who', 'when', 'where', 'write', 'create', 'explain', 'make', 'build', 'show', 'tell', 'give', 'please', 'is', 'are', 'my', 'you', 'your', 'with', 'for', 'to', 'of', 'and', 'from']);
 
@@ -30,6 +40,7 @@ export function looksLikeProduct(query: string): boolean {
   const words = strip(q).split(/[^\p{L}\p{N}]+/u).filter(Boolean);
   if (words.length > MAX_WORDS) return false;
   if (words.some((w) => OFF_TOPIC.has(w))) return false;
+  if (words.some((w) => PROFANITY.has(collapse(w)))) return false;
   const english = words.filter((w) => ENGLISH.has(w)).length;
   // "and"/"to"/"for"/"of" soltos são raros em português; duas palavras do inglês ou uma pergunta (how, what…) já bastam
   if (english >= 2 || words.some((w) => ['how', 'what', 'why', 'who', 'when', 'where', 'write', 'create', 'explain', 'please', 'the'].includes(w))) return false;
