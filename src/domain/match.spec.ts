@@ -385,3 +385,31 @@ describe('remédio só pelo princípio ativo: marca e laboratório são o mesmo 
     expect(pickBest('Novalgina 500mg 10 comprimidos', offers)?.offer.title).toMatch(/Novalgina/);
   });
 });
+
+describe('com gás x sem gás (o produto é o oposto, não uma variação)', () => {
+  const comGas = (title: string) => scoreMatch('Água com gás', title);
+  it.each(['AGUA MINERAL AQUAFEST S/GAS 500ML', 'Agua Mineral Living 500ml S/gas', 'Água Mineral Crystal sem gás 500ml', 'Agua Mineral S/ Gas 1.5L'])(
+    'pedindo "com gás", o título "%s" não passa como certo', (title) => expect(comGas(title)).toBeLessThan(CERTAIN_THRESHOLD),
+  );
+  it.each(['Agua Mineral Aquafest C/gás 500ml', 'Agua Mineral Living 500ml C/GAS', 'Água Mineral Crystal com gás 500ml', 'Água Mineral Gaseificada 500ml'])(
+    'pedindo "com gás", o título "%s" passa como certo', (title) => expect(comGas(title)).toBeGreaterThanOrEqual(CERTAIN_THRESHOLD),
+  );
+  it('pedindo "sem gás", o título com gás cai e o sem gás passa', () => {
+    expect(scoreMatch('Água sem gás', 'Agua Mineral Aquafest C/gás 500ml')).toBeLessThan(CERTAIN_THRESHOLD);
+    expect(scoreMatch('Água sem gás', 'AGUA MINERAL AQUAFEST S/GAS 500ML')).toBeGreaterThanOrEqual(CERTAIN_THRESHOLD);
+  });
+  it('título que não diz nada sobre gás vira incerto (não é confirmado como com gás)', () => {
+    expect(comGas('Agua Mineral Crystal 500ml')).toBeLessThan(CERTAIN_THRESHOLD);
+  });
+  it('quem não pede gás não é afetado', () => {
+    expect(scoreMatch('Água mineral 500ml', 'Agua Mineral Aquafest S/GAS 500ml')).toBeGreaterThanOrEqual(CERTAIN_THRESHOLD);
+  });
+  it('o pickBest prefere a água com gás mesmo sendo mais cara, e não escolhe a sem gás como certa', () => {
+    const r = pickBest('Água com gás 500ml', [o('Agua Mineral Aquafest S/GAS 500ml', 1.5), o('Agua Mineral Aquafest C/GAS 500ml', 2.5)]);
+    expect(r?.offer.title).toContain('C/GAS');
+  });
+  it('rankCandidates põe a com gás antes da sem gás', () => {
+    const ranked = rankCandidates('Água com gás 500ml', [o('Agua Mineral Aquafest S/GAS 500ml', 1.5), o('Agua Mineral Aquafest C/GAS 500ml', 2.5)]);
+    expect(ranked[0]?.offer.title).toContain('C/GAS');
+  });
+});

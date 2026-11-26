@@ -106,18 +106,42 @@ function strengthFactor(nq: string, nt: string): number {
   return have.size === 0 ? STRENGTH_MISSING : STRENGTH_MISMATCH;
 }
 
+/**
+ * Gás da água e de bebidas: "com gás" e "sem gás" são produtos opostos, não variações. "S/GAS" vira dois tokens ("s", "gas"), então
+ * a palavra "gás" sozinha engana o casamento: o título sem gás parecia ter o termo pedido.
+ */
+type Gas = 'com' | 'sem' | null;
+const SEM_GAS_RE = /\bs\s*\/\s*gas\b|\bsem\s+gas\b|\bnao\s+gaseific/;
+const COM_GAS_RE = /\bc\s*\/\s*gas\b|\bcom\s+gas\b|\bgaseificad[ao]s?\b|\bcarbonatad[ao]s?\b|\bgas\b/;
+const gasOf = (n: string): Gas => (SEM_GAS_RE.test(n) ? 'sem' : COM_GAS_RE.test(n) ? 'com' : null);
+const GAS_TOKEN_RE = /^(gas|sem|gaseificad[ao]|carbonatad[ao])$/;
+const GAS_MISMATCH = 0.4; // o oposto: abaixo de MATCH_THRESHOLD
+const GAS_UNKNOWN = 0.8; // título sem dizer: abaixo de CERTAIN_THRESHOLD (aparece como incerto)
+const gasFactor = (wanted: Gas, title: Gas): number => (wanted === null || wanted === title ? 1 : title === null ? GAS_UNKNOWN : GAS_MISMATCH);
+
 /** Fração dos termos pedidos presentes no título, penalizada por tamanho divergente/ausente, extras e embalagem múltipla. */
 export function scoreMatch(query: string, title: string, ctx?: MatchContext): number {
-  const q = tokens(query);
+  let q = tokens(query);
   if (q.size === 0) return 0;
-  const t = tokens(title);
+  let t = tokens(title);
   const nq = normalize(query);
   const nt = normalize(title);
+  const noGas = (set: Set<string>): Set<string> => new Set([...set].filter((tok) => !GAS_TOKEN_RE.test(tok)));
+  let terms = queryTerms(query);
+  // "Gás 13kg" (o botijão): o gás é o produto, não um atributo. Só vale como atributo quando sobra algum outro termo ("água com gás").
+  const gasIsAttribute = [...noGas(terms)].some((tok) => !SIZE_TOKEN_RE.test(tok) && !STRENGTH_TOKEN_RE.test(tok));
+  const wantedGas = gasIsAttribute ? gasOf(nq) : null;
+  if (wantedGas !== null) {
+    // o gás é decidido pelo fator abaixo; as palavras "gás"/"sem" não podem valer como termo nem como extra
+    q = noGas(q);
+    t = noGas(t);
+    terms = noGas(terms);
+  }
   const qq = extractQuantity(nq);
   const tq = extractQuantity(nt);
   const sizeUncertain = qq !== null && (tq === null || tq.dim !== qq.dim || tq.value !== qq.value);
   const multipack = isMultipack(nt) && !isMultipack(nq);
-  return termRecall(queryTerms(query), t, nt) * extrasFactor(q, t, ctx) * strengthFactor(nq, nt) * (sizeUncertain ? 0.5 : 1) * (multipack ? 0.5 : 1);
+  return termRecall(terms, t, nt) * extrasFactor(q, t, ctx) * strengthFactor(nq, nt) * gasFactor(wantedGas, gasOf(nt)) * (sizeUncertain ? 0.5 : 1) * (multipack ? 0.5 : 1);
 }
 
 /** Contagem de unidades ("30un"): os buscadores das lojas não a entendem. */
