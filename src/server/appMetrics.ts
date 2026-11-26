@@ -20,6 +20,10 @@ export function createAppMetrics(): Metrics {
   m.define('auth_events_total', 'counter', 'Contas, por evento (signup = conta nova, login_ok, login_error, logout, account_deleted)');
   m.define('panel_events_total', 'counter', 'Painel da conta, por evento (list_saved, list_deleted, track_added, track_removed)');
   m.define('tracked_refresh_total', 'counter', 'Rotina diária dos produtos acompanhados, por resultado (refreshed, skipped, failed)');
+  m.define('catalog_refresh_total', 'counter', 'Coleta noturna da lista base, por resultado (collected, skipped, failed)');
+  m.define('catalog_products_collected', 'gauge', 'Produtos da lista base coletados hoje, por mercado');
+  m.define('catalog_seed_size', 'gauge', 'Tamanho da lista base da coleta noturna');
+  m.define('catalog_last_run_timestamp_seconds', 'gauge', 'Quando a coleta noturna terminou pela última vez (segundos desde 1970)');
   m.define('accounts_total', 'gauge', 'Contas existentes');
   m.define('accounts_active', 'gauge', 'Contas com acesso na janela (window=7d ou 30d)');
   m.define('accounts_new', 'gauge', 'Contas criadas na janela (window=24h ou 7d)');

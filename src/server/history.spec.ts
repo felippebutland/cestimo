@@ -72,3 +72,51 @@ describe('createHistoryStore', () => {
     expect(store.series('Arroz', 30)).toEqual([]);
   });
 });
+
+describe('observações (o que a loja tinha, com o título que casou)', () => {
+  const T = Date.parse('2026-11-26T12:00:00Z');
+  const mk = () => { let t = T; return { store: createHistoryStore({ path: ':memory:', now: () => t, keepDays: 30 }), advance: (ms: number) => { t += ms; } }; };
+  const row = (extra: Record<string, unknown> = {}) => ({ source: 'Comper', title: 'Óleo de Soja Liza 900ml', priceBRL: 7.59, unitPriceBRL: 8.43, uncertain: false, ...extra });
+
+  it('guarda título, preço, preço por unidade e se foi incerto', () => {
+    const { store } = mk();
+    store.recordObservations('2026-11-26', 'Óleo de soja 900ml', [row(), row({ source: 'Royal', title: 'Oleo liza algodao 900ml', priceBRL: 20.99, unitPriceBRL: 23.32, uncertain: true })]);
+    expect(store.observationsOn('2026-11-26', 'óleo de soja 900ml')).toEqual([
+      { source: 'Comper', title: 'Óleo de Soja Liza 900ml', priceBRL: 7.59, unitPriceBRL: 8.43, uncertain: false },
+      { source: 'Royal', title: 'Oleo liza algodao 900ml', priceBRL: 20.99, unitPriceBRL: 23.32, uncertain: true },
+    ]);
+  });
+  it('a segunda gravação do mesmo dia, produto e loja substitui a primeira', () => {
+    const { store } = mk();
+    store.recordObservations('2026-11-26', 'arroz 5kg', [row({ title: 'A', priceBRL: 20 })]);
+    store.recordObservations('2026-11-26', 'arroz 5kg', [row({ title: 'B', priceBRL: 19 })]);
+    expect(store.observationsOn('2026-11-26', 'arroz 5kg')).toHaveLength(1);
+    expect(store.observationsOn('2026-11-26', 'arroz 5kg')[0]).toMatchObject({ title: 'B', priceBRL: 19 });
+  });
+  it('preço inválido, título vazio ou loja vazia não entram; unidade é opcional', () => {
+    const { store } = mk();
+    store.recordObservations('2026-11-26', 'sal 1kg', [row({ priceBRL: 0 }), row({ priceBRL: NaN }), row({ title: '' }), row({ source: '' }), row({ unitPriceBRL: undefined, source: 'Brasão' })]);
+    const out = store.observationsOn('2026-11-26', 'sal 1kg');
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({ source: 'Brasão' });
+    expect(out[0]).not.toHaveProperty('unitPriceBRL');
+  });
+  it('corta título muito longo em 200 caracteres', () => {
+    const { store } = mk();
+    store.recordObservations('2026-11-26', 'sal 1kg', [row({ title: 'x'.repeat(500) })]);
+    expect(store.observationsOn('2026-11-26', 'sal 1kg')[0]!.title).toHaveLength(200);
+  });
+  it('quantos produtos cada loja tem no dia (para medir a cobertura da coleta)', () => {
+    const { store } = mk();
+    store.recordObservations('2026-11-26', 'a', [row(), row({ source: 'Royal' })]);
+    store.recordObservations('2026-11-26', 'b', [row()]);
+    expect(store.coverageOn('2026-11-26')).toEqual({ Comper: 2, Royal: 1 });
+  });
+  it('o purge também apaga as observações antigas', () => {
+    const { store, advance } = mk();
+    store.recordObservations('2026-11-26', 'a', [row()]);
+    advance(40 * 24 * 60 * 60 * 1000);
+    store.purge();
+    expect(store.observationsOn('2026-11-26', 'a')).toEqual([]);
+  });
+});

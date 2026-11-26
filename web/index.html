@@ -10,10 +10,25 @@
   <script src="/theme-init.js"></script>
   <meta name="theme-color" content="#f6f7f8" media="(prefers-color-scheme: light)" />
   <meta name="theme-color" content="#0d0f12" media="(prefers-color-scheme: dark)" />
-  <title>Cestimo — comparador de preços de supermercados</title>
-  <meta name="description" content="Cole sua lista de compras e veja onde sai mais barato: o Cestimo compara os preços dos supermercados e farmácias da sua cidade. Grátis e sem cadastro." />
-  <meta property="og:title" content="Cestimo: onde sai mais barato?" />
-  <meta property="og:description" content="Compare os preços dos supermercados e farmácias da sua cidade com a sua lista de compras. Grátis e sem cadastro." />
+  <title>Comparador de preços de supermercados em __CITY__ | Cestimo</title>
+  <meta name="description" content="Cole sua lista de compras e veja onde sai mais barato em __CITY__: o Cestimo compara os preços de supermercados e farmácias. Grátis e sem cadastro." />
+  <meta name="robots" content="index, follow, max-image-preview:large" />
+  <link rel="canonical" href="__SITE_URL__/" />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Cestimo" />
+  <meta property="og:locale" content="pt_BR" />
+  <meta property="og:url" content="__SITE_URL__/" />
+  <meta property="og:title" content="Cestimo: onde sai mais barato em __CITY__?" />
+  <meta property="og:description" content="Compare os preços de supermercados e farmácias de __CITY__ com a sua lista de compras. Grátis e sem cadastro." />
+  <meta property="og:image" content="__SITE_URL__/og.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:image:alt" content="Cestimo: compare os preços de supermercados e farmácias de Chapecó" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Cestimo: onde sai mais barato em __CITY__?" />
+  <meta name="twitter:description" content="Compare os preços de supermercados e farmácias com a sua lista de compras. Grátis e sem cadastro." />
+  <meta name="twitter:image" content="__SITE_URL__/og.png" />
+  <script type="application/ld+json">__JSONLD__</script>
   <style>
     :root {
       color-scheme: light dark;
@@ -440,6 +455,7 @@
           <div class="how-step"><span class="n">3</span><b>Escolha onde comprar</b><p>Veja o menor preço de cada item ou o mercado que deixa a lista inteira mais barata.</p></div>
         </div>
         <h3>O que comparamos</h3>
+        <p class="muted-note">O Cestimo é um comparador de preços de supermercados e farmácias de __CITY__: lemos os preços publicados por __SOURCES__ e mostramos onde cada item da sua lista sai mais barato.</p>
         <div id="how-sources"></div>
         <h3>Com uma conta (opcional)</h3>
         <ul>

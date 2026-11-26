@@ -250,3 +250,74 @@ groups:
               expression: B
               conditions:
                 - evaluator: { type: gt, params: [2] }
+
+  - orgId: 1
+    name: cestimo-coleta
+    folder: Cestimo
+    interval: 5m
+    rules:
+      # Uma loja devolveu menos de 70% da lista base na coleta noturna: site mudou, bloqueou ou ficou fora do ar.
+      - uid: cestimo-coleta-cobertura
+        title: Coleta noturna com pouca cobertura
+        condition: C
+        for: 10m
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.source }} devolveu menos de 70% da lista base na última coleta"
+          description: "Veja os logs catalog_refresh. Rode `npm run markets:check` para ver o que a loja devolve."
+        data:
+          - refId: A
+            relativeTimeRange: { from: 3600, to: 0 }
+            datasourceUid: prom
+            model:
+              refId: A
+              instant: true
+              expr: >-
+                catalog_products_collected / on() group_left() catalog_seed_size
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: lt, params: [0.7] }
+
+      # A coleta noturna não terminou nas últimas 36 horas (só vale se a lista base existe).
+      - uid: cestimo-coleta-parada
+        title: Coleta noturna parada
+        condition: C
+        for: 30m
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: warning
+        annotations:
+          summary: "A coleta noturna não termina há mais de 36 h"
+          description: "A rodada começa às 3h (SEED_REFRESH_HOUR). Veja os logs catalog_refresh e se o Mac ficou ligado."
+        data:
+          - refId: A
+            relativeTimeRange: { from: 3600, to: 0 }
+            datasourceUid: prom
+            model:
+              refId: A
+              instant: true
+              expr: >-
+                time() - catalog_last_run_timestamp_seconds
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [129600] }

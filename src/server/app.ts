@@ -1,7 +1,7 @@
+import { readFileSync } from 'node:fs';
 import { findCeiling, pharmacyMatchContext, type CmedIndex } from './cmed.js';
 import { isPushEndpoint, parseSubscribeBody, type SubscriptionStore } from './push/subscriptions.js';
 import { randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import { compare, recompute, type SourceEvent } from '../domain/compare.js';
 import { parseList } from '../domain/parseList.js';
@@ -10,6 +10,7 @@ import { createAppMetrics } from './appMetrics.js';
 import { parseClient } from './client.js';
 import { basicAuthOk, createGate, createRateLimiter } from './limits.js';
 import { createDailyStats, type DailyStats } from './dailyStats.js';
+import { NOINDEX_PREFIXES } from './seo.js';
 import { createSwapLog, parseSwapDetail, type SwapLog } from './swapLog.js';
 import { createTopList, normalizeQuery, type Metrics } from './metrics.js';
 import { parseRecomputeBody } from './recomputeInput.js';
@@ -144,8 +145,10 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     return undefined;
   });
 
-  app.addHook('onSend', async (_req, reply) => {
+  app.addHook('onSend', async (req, reply) => {
     for (const [name, value] of Object.entries(SECURITY_HEADERS)) reply.header(name, value);
+    // Painel, API, métricas e saúde não são conteúdo para buscadores (o robots.txt só pede, este cabeçalho garante).
+    if (NOINDEX_PREFIXES.some((p) => req.url.startsWith(p))) reply.header('x-robots-tag', 'noindex, nofollow');
   });
 
   app.addHook('onResponse', async (req, reply) => {
@@ -180,6 +183,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   };
 
   app.get('/healthz', () => ({ ok: true }));
+
   const pharmacyCtx = deps.cmed ? pharmacyMatchContext(deps.cmed) : undefined;
   const sourcesOf = (category: Category): PriceSource[] => (category === 'farmacias' ? deps.pharmacySources ?? [] : deps.sources);
   const categoryIds: Category[] = (deps.pharmacySources?.length ?? 0) > 0 ? ['mercados', 'farmacias'] : ['mercados'];

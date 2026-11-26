@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { registerSeoRoutes } from './seoRoutes.js';
 import { buildApp } from './app.js';
 import { createSubscriptionStore } from './push/subscriptions.js';
 import { createCmedIndex } from './cmed.js';
@@ -564,6 +565,43 @@ describe('POST /api/recompute (depois que a pessoa troca um item)', () => {
     expect((await app.inject({ method: 'POST', url: '/api/event', payload: { name: 'swap_match' } })).statusCode).toBe(204);
     const stats = (await app.inject({ method: 'GET', url: '/admin/stats', headers: basic })).json();
     expect(stats.events).toMatchObject({ swap_match: 1 });
+  });
+});
+
+describe('SEO: robots, sitemap, página inicial e noindex', () => {
+  const build = () => {
+    const app = buildApp({ sources: [fake], metricsToken: 'x', city: 'Chapecó, SC' });
+    registerSeoRoutes(app, { siteUrl: 'https://cestimo.exemplo.com', city: 'Chapecó, SC', name: 'Cestimo', sources: ['fake'] });
+    return app;
+  };
+  it('GET /robots.txt é texto simples e aponta o sitemap', async () => {
+    const res = await build().inject({ method: 'GET', url: '/robots.txt' });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['content-type']).toContain('text/plain');
+    expect(res.body).toContain('Sitemap: https://cestimo.exemplo.com/sitemap.xml');
+  });
+  it('GET /sitemap.xml é XML com a página inicial', async () => {
+    const res = await build().inject({ method: 'GET', url: '/sitemap.xml' });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['content-type']).toContain('xml');
+    expect(res.body).toContain('<loc>https://cestimo.exemplo.com/</loc>');
+  });
+  it('a página inicial já vem com cidade, canonical e lojas escritas no HTML (sem depender de JavaScript)', async () => {
+    const res = await build().inject({ method: 'GET', url: '/' });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['content-type']).toContain('text/html');
+    expect(res.body).toContain('<link rel="canonical" href="https://cestimo.exemplo.com/" />');
+    expect(res.body).toContain('Chapecó, SC');
+    expect(res.body).toContain('fake');
+    expect(res.body).not.toMatch(/__[A-Z_]+__/);
+    expect((await build().inject({ method: 'GET', url: '/index.html' })).statusCode).toBe(200);
+  });
+  it.each(['/admin', '/admin/stats', '/api/config', '/metrics', '/healthz'])('%s diz ao Google para não indexar (X-Robots-Tag)', async (url) => {
+    const res = await build().inject({ method: 'GET', url });
+    expect(res.headers['x-robots-tag']).toContain('noindex');
+  });
+  it('a página inicial NÃO tem noindex', async () => {
+    expect((await build().inject({ method: 'GET', url: '/' })).headers['x-robots-tag']).toBeUndefined();
   });
 });
 

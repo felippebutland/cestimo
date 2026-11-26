@@ -7,6 +7,9 @@ import { createAppMetrics } from './appMetrics.js';
 import { withCache } from './cache.js';
 import { createDailyStats } from './dailyStats.js';
 import { createSwapLog } from './swapLog.js';
+import { registerSeoRoutes } from './seoRoutes.js';
+import { readSeedList } from './catalog/seedList.js';
+import { runCatalogRefresh } from './catalog/catalogRefresh.js';
 import { buildPharmacySources, buildSources, readMarketsFile } from './markets.js';
 import { createTopList } from './metrics.js';
 import { createStateFile, startAutosave } from './persistence.js';
@@ -158,7 +161,8 @@ const app = buildApp({
   trustProxy: ['1', 'true'].includes(process.env.TRUST_PROXY ?? ''),
 });
 // maxAge 0: o navegador revalida a cada acesso (ETag): quem já tem o arquivo não baixa de novo, e atualizações chegam na hora.
-await app.register(fastifyStatic, { root: fileURLToPath(new URL('../../web/', import.meta.url)), maxAge: 0 });
+registerSeoRoutes(app, { siteUrl: publicUrl, city: markets.city, name: process.env.APP_NAME || 'Cestimo', sources: [...rawSources, ...rawPharmacies].map((s) => s.name) });
+await app.register(fastifyStatic, { root: fileURLToPath(new URL('../../web/', import.meta.url)), maxAge: 0, index: false });
 
 await app.listen({ port: num('PORT', 3000), host: process.env.HOST ?? '127.0.0.1' });
 if (!process.env.METRICS_TOKEN) app.log.warn('METRICS_TOKEN não definido: /admin, /metrics e /admin/stats estão desativados.');
@@ -237,6 +241,50 @@ if (authStore) {
   const tick = async (): Promise<void> => { await trackedRefresh(); await trackedNotify(); };
   setTimeout(() => void tick(), 10 * 60 * 1000).unref();
   setInterval(() => void tick(), 60 * 60 * 1000).unref();
+}
+
+// Coleta noturna: consulta a lista base (config/seed-products.json) em todos os mercados e guarda o preço e o título que casou.
+// Fica de fora quem não tem a lista. Cada produto já coletado no dia é pulado (um reinício não repete o trabalho).
+const seedFile = process.env.SEED_FILE ?? fileURLToPath(new URL('../../config/seed-products.json', import.meta.url));
+let seedList: string[] = [];
+try {
+  seedList = readSeedList(seedFile);
+} catch (e) {
+  console.error(`\nLista base da coleta noturna inválida: ${(e as Error).message}\n`);
+}
+if (seedList.length > 0) {
+  metrics.set('catalog_seed_size', {}, seedList.length);
+  let lastCatalogDay: string | null = null;
+  const catalogTick = async (): Promise<void> => {
+    const { due, day } = dueToday({ now: Date.now(), utcOffsetMinutes, hour: num('SEED_REFRESH_HOUR', 3), lastRunDay: lastCatalogDay });
+    if (!due) return;
+    lastCatalogDay = day;
+    try {
+      const r = await runCatalogRefresh({
+        queries: seedList,
+        sources: rawSources.map((s) => s.name),
+        hasToday: (query) => history.observationsOn(day, query).length > 0,
+        search: async (queries, excluded) => (await compare(queries, sources.filter((s) => !excluded.has(s.name)))).products,
+        record: (p) => {
+          const matched = p.sources.flatMap((s) => (s.match ? [{ source: s.source, match: s.match }] : []));
+          history.record(day, historyKey(p.query, 'mercados'), matched.filter((m) => !m.match.uncertain).map((m) => ({ source: m.source, priceBRL: m.match.equivalentBRL })));
+          history.recordObservations(day, historyKey(p.query, 'mercados'), matched.map((m) => ({ source: m.source, title: m.match.title, priceBRL: m.match.priceBRL, unitPriceBRL: m.match.unitPriceBRL, uncertain: m.match.uncertain })));
+        },
+        pauseMs: num('SEED_PAUSE_SECONDS', 3) * 1000,
+        maxMs: num('SEED_MAX_MINUTES', 240) * 60 * 1000,
+      });
+      metrics.inc('catalog_refresh_total', { result: 'collected' }, r.collected);
+      metrics.inc('catalog_refresh_total', { result: 'skipped' }, r.skipped);
+      metrics.inc('catalog_refresh_total', { result: 'failed' }, r.failed);
+      for (const [source, n] of Object.entries(history.coverageOn(day))) metrics.set('catalog_products_collected', { source }, n);
+      metrics.set('catalog_last_run_timestamp_seconds', {}, Math.round(Date.now() / 1000));
+      app.log.info({ event: 'catalog_refresh', ...r });
+    } catch (e) {
+      app.log.warn({ event: 'catalog_refresh_error', message: e instanceof Error ? e.message : String(e) });
+    }
+  };
+  setTimeout(() => void catalogTick(), 15 * 60 * 1000).unref();
+  setInterval(() => void catalogTick(), 60 * 60 * 1000).unref();
 }
 
 // Teste automático: uma busca fixa em cada mercado a cada hora (sem cache), para notar site que mudou mesmo sem ninguém usando.
