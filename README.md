@@ -63,7 +63,7 @@ Os mercados não têm API pública. O app abre os sites com um navegador automat
 
 | Plataforma (`platform`) | Como reconhecer | Exemplos (Chapecó) |
 |---|---|---|
-| `osuper` | requisições para `sense.osuper.com.br` e `/storefront/graphql` | Comper, Royal |
+| `osuper` | requisições para `sense.osuper.com.br` e `/storefront/graphql` | Comper, Royal, Super Alfa |
 | `mercafacil` | requisições para `/api/new-web/graphql`; imagens em `phygital-files.mercafacil.com` | Brasão, Unicooper |
 | `vipcommerce` | requisições para `services.vipcommerce.com.br` | Passarela |
 | `amazon` | amazon.com.br | Amazon |

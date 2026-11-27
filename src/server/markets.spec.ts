@@ -13,6 +13,10 @@ describe('parseMarketsFile', () => {
     expect(parsed.city).toBe('Chapecó, SC');
     expect(parsed.markets.length).toBeGreaterThan(0);
   });
+  it('o config/markets.json do projeto inclui o Super Alfa (loja de Chapecó, Av. Fernando Machado, loja padrão do site)', () => {
+    const parsed = readMarketsFile(join(process.cwd(), 'config', 'markets.json'));
+    expect(parsed.markets).toContainEqual({ platform: 'osuper', name: 'Super Alfa', origin: 'https://superalfanumclick.com.br', tenant: '69', storeId: '189' });
+  });
   it('rejeita o que não é objeto', () => {
     expect(() => parseMarketsFile(null)).toThrow(/objeto/);
   });

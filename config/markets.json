@@ -17,6 +17,13 @@
       "storeId": "18"
     },
     {
+      "platform": "osuper",
+      "name": "Super Alfa",
+      "origin": "https://superalfanumclick.com.br",
+      "tenant": "69",
+      "storeId": "189"
+    },
+    {
       "platform": "mercafacil",
       "name": "Brasão",
       "origin": "https://www.brasao.com.br",
