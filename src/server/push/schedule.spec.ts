@@ -20,3 +20,24 @@ describe('dueToday', () => {
     expect(dueToday({ now: at('2026-11-24T01:00:00Z'), utcOffsetMinutes: -180, hour: 0, lastRunDay: '2026-11-23' })).toEqual({ due: false, day: '2026-11-23' });
   });
 });
+
+describe('dueToday com janela (rotina pesada só de madrugada)', () => {
+  const base = { utcOffsetMinutes: -180, hour: 3, windowHours: 4, lastRunDay: null as string | null };
+  it('dentro da janela (3h às 7h, Brasília) roda', () => {
+    expect(dueToday({ ...base, now: at('2026-11-26T06:30:00Z') }).due).toBe(true); // 03:30
+    expect(dueToday({ ...base, now: at('2026-11-26T09:59:00Z') }).due).toBe(true); // 06:59
+  });
+  it('depois da janela não roda, mesmo sem ter rodado hoje (reiniciar à tarde não dispara a coleta)', () => {
+    expect(dueToday({ ...base, now: at('2026-11-26T10:00:00Z') }).due).toBe(false); // 07:00
+    expect(dueToday({ ...base, now: at('2026-11-26T22:50:00Z') }).due).toBe(false); // 19:50
+  });
+  it('antes da janela não roda', () => {
+    expect(dueToday({ ...base, now: at('2026-11-26T05:59:00Z') }).due).toBe(false); // 02:59
+  });
+  it('já rodou hoje: não repete dentro da janela', () => {
+    expect(dueToday({ ...base, now: at('2026-11-26T07:00:00Z'), lastRunDay: '2026-11-26' }).due).toBe(false);
+  });
+  it('sem janela, o comportamento antigo continua (qualquer hora depois da marcada)', () => {
+    expect(dueToday({ now: at('2026-11-26T22:50:00Z'), utcOffsetMinutes: -180, hour: 3, lastRunDay: null }).due).toBe(true);
+  });
+});

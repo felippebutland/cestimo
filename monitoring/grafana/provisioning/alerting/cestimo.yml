@@ -256,7 +256,9 @@ groups:
     folder: Cestimo
     interval: 5m
     rules:
-      # Uma loja devolveu menos de 70% da lista base na coleta noturna: site mudou, bloqueou ou ficou fora do ar.
+      # Uma loja coletou menos de 70% do que costuma coletar (média dos últimos 7 dias, sem contar hoje): site mudou, bloqueou ou ficou fora do ar.
+      # Não compara com o tamanho da lista base: cada loja tem catálogo e nomes diferentes (a Passarela, por exemplo, casa ~22% da lista de forma normal).
+      # Sem 1 dia de histórico ainda, não há comparação e o alerta fica quieto.
       - uid: cestimo-coleta-cobertura
         title: Coleta noturna com pouca cobertura
         condition: C
@@ -266,7 +268,7 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: "{{ $labels.source }} devolveu menos de 70% da lista base na última coleta"
+          summary: "{{ $labels.source }} coletou menos de 70% do que costuma coletar na última rodada"
           description: "Veja os logs catalog_refresh. Rode `npm run markets:check` para ver o que a loja devolve."
         data:
           - refId: A
@@ -276,7 +278,7 @@ groups:
               refId: A
               instant: true
               expr: >-
-                catalog_products_collected / on() group_left() catalog_seed_size
+                catalog_products_collected / (avg_over_time(catalog_products_collected[7d] offset 1d))
           - refId: B
             datasourceUid: __expr__
             model: { refId: B, type: reduce, expression: A, reducer: last }

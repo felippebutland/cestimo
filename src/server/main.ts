@@ -243,7 +243,7 @@ if (authStore) {
   setInterval(() => void tick(), 60 * 60 * 1000).unref();
 }
 
-// Coleta noturna: consulta a lista base (config/seed-products.json) em todos os mercados e guarda o preço e o título que casou.
+// Coleta noturna (só de madrugada, de SEED_REFRESH_HOUR até SEED_WINDOW_HOURS depois; um produto por vez para não pesar nas lojas nem no servidor): consulta a lista base (config/seed-products.json) em todos os mercados e guarda o preço e o título que casou.
 // Fica de fora quem não tem a lista. Cada produto já coletado no dia é pulado (um reinício não repete o trabalho).
 const seedFile = process.env.SEED_FILE ?? fileURLToPath(new URL('../../config/seed-products.json', import.meta.url));
 let seedList: string[] = [];
@@ -256,7 +256,7 @@ if (seedList.length > 0) {
   metrics.set('catalog_seed_size', {}, seedList.length);
   let lastCatalogDay: string | null = null;
   const catalogTick = async (): Promise<void> => {
-    const { due, day } = dueToday({ now: Date.now(), utcOffsetMinutes, hour: num('SEED_REFRESH_HOUR', 3), lastRunDay: lastCatalogDay });
+    const { due, day } = dueToday({ now: Date.now(), utcOffsetMinutes, hour: num('SEED_REFRESH_HOUR', 3), windowHours: num('SEED_WINDOW_HOURS', 4), lastRunDay: lastCatalogDay });
     if (!due) return;
     lastCatalogDay = day;
     try {
@@ -270,6 +270,7 @@ if (seedList.length > 0) {
           history.record(day, historyKey(p.query, 'mercados'), matched.filter((m) => !m.match.uncertain).map((m) => ({ source: m.source, priceBRL: m.match.equivalentBRL })));
           history.recordObservations(day, historyKey(p.query, 'mercados'), matched.map((m) => ({ source: m.source, title: m.match.title, priceBRL: m.match.priceBRL, unitPriceBRL: m.match.unitPriceBRL, uncertain: m.match.uncertain })));
         },
+        batchSize: num('SEED_BATCH_SIZE', 1),
         pauseMs: num('SEED_PAUSE_SECONDS', 3) * 1000,
         maxMs: num('SEED_MAX_MINUTES', 240) * 60 * 1000,
       });
